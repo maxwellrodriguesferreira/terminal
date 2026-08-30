@@ -29,6 +29,7 @@ const historyCounter = document.getElementById('historyCounter');
 document.addEventListener('DOMContentLoaded', () => {
   renderWelcomeBanner();
   updateHistoryCounter();
+  updateAIStatus();
   cliInput.focus();
 
   // Event Listeners
@@ -320,6 +321,145 @@ function generateMessages(params) {
   return generated;
 }
 
+/* ==========================================================================
+   INTEGRAÇÃO DE IA (GOOGLE GEMINI 1.5 FLASH)
+   ========================================================================== */
+
+async function callGeminiAPI(promptText) {
+  const apiKey = localStorage.getItem('apoio_gemini_api_key') || '';
+  if (!apiKey) {
+    throw new Error("Chave de API do Gemini não configurada. Digite 'apikey SUACHAVE' no terminal.");
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: promptText }]
+      }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 1000
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const msg = errorData.error?.message || response.statusText;
+    throw new Error(`Erro na API Gemini (${response.status}): ${msg}`);
+  }
+
+  const data = await response.json();
+  if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+    return data.candidates[0].content.parts[0].text;
+  }
+  throw new Error("Resposta inválida recebida da API Gemini.");
+}
+
+async function generateMessagesAI(params) {
+  const itemInput = params.medicamento || params.item || 'Medicamento / Serviço';
+  const classification = classifyItem(itemInput, params.tipoOverride || 'auto');
+
+  const data = {
+    nome: capitalizeName(params.nome || 'Cliente'),
+    drogaria: params.drogaria || DEFAULT_CONFIG.drogaria,
+    farmaceutico: params.farmaceutico || DEFAULT_CONFIG.farmaceutico,
+    medicamento: itemInput,
+    classification: classification,
+    sintoma: params.sintoma || '',
+    tempo: params.tempo || '',
+    dica: params.dica || '',
+    telefone: params.telefone ? params.telefone.replace(/\D/g, '') : ''
+  };
+
+  const prompt = `
+Você é o Farmacêutico Maxwell da filial ${data.drogaria}.
+Sua missão é gerar 4 variações de mensagens de acompanhamento de pós-venda em português do Brasil para o WhatsApp do cliente.
+
+DADOS DO ATENDIMENTO:
+- Cliente: ${data.nome}
+- Item/Serviço: ${data.medicamento} (Categoria Identificada: ${data.classification.label})
+- Sintoma/Motivo relatado pelo cliente: ${data.sintoma || 'Não informado'}
+- Tempo decorrido: ${data.tempo || 'Atendimento recente'}
+- Orientação/Dica de saúde específica: ${data.dica || 'Recomendações gerais de saúde e adesão ao tratamento'}
+
+REGRAS OBRIGATÓRIAS:
+1. Tom estritamente humanizado, acolhedor, ético e farmacêutico.
+2. Formate as mensagens adequadamente para o WhatsApp (use quebras de linha limpas e emojis pertinentes).
+3. Adapte se for medicamento ou serviço (ex: para bioimpedância comente sobre o relatório; para sensor libre sobre a fixação/sincronização; para medicamentos sobre posologia e hidratação).
+4. Responda ESTRITAMENTE em formato JSON VÁLIDO com exatamente as seguintes chaves (sem Markdown extra em volta, apenas o JSON bruto):
+{
+  "empatico": "mensagem tom empático...",
+  "atencioso": "mensagem tom atencioso e profissional...",
+  "descontraido": "mensagem tom leve e descontraído...",
+  "pos_tratamento": "mensagem focada em pós-tratamento e retorno..."
+}
+`;
+
+  const rawText = await callGeminiAPI(prompt);
+  const cleanedText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const parsedJSON = JSON.parse(cleanedText);
+
+  // Aplicar proteção Anti-Spam nas mensagens da IA (Zero-Width Space + Hash Signature)
+  function applyAntiSpamProtection(text) {
+    const zeroWidthPadding = '\u200B'.repeat(Math.floor(Math.random() * 5) + 1);
+    const finalText = `${text}${zeroWidthPadding}`;
+    let hash = 0;
+    for (let i = 0; i < finalText.length; i++) {
+      const char = finalText.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    const signature = 'SIG_' + Math.abs(hash).toString(36);
+    return { text: finalText, signature };
+  }
+
+  const versionsWithAntiSpam = {};
+  for (const [key, value] of Object.entries({
+    empatico: parsedJSON.empatico || MESSAGE_TEMPLATES.empatico(data),
+    atencioso: parsedJSON.atencioso || MESSAGE_TEMPLATES.atencioso(data),
+    descontraido: parsedJSON.descontraido || MESSAGE_TEMPLATES.descontraido(data),
+    pos_tratamento: parsedJSON.pos_tratamento || MESSAGE_TEMPLATES.pos_tratamento(data)
+  })) {
+    versionsWithAntiSpam[key] = applyAntiSpamProtection(value);
+  }
+
+  const generated = {
+    id: Date.now(),
+    timestamp: new Date().toLocaleString('pt-BR'),
+    clientData: data,
+    isAI: true,
+    versions: versionsWithAntiSpam
+  };
+
+  generatedMessagesHistory.unshift(generated);
+  localStorage.setItem('apoio_tratamento_history', JSON.stringify(generatedMessagesHistory));
+  updateHistoryCounter();
+
+  return generated;
+}
+
+async function generateMessagesSmart(params) {
+  const apiKey = localStorage.getItem('apoio_gemini_api_key');
+  if (apiKey) {
+    appendLog(`🤖 <strong>Gemini IA:</strong> Consultando a inteligência artificial para <strong>${escapeHTML(params.nome || 'Cliente')}</strong>...`, 'log-info');
+    try {
+      const aiResult = await generateMessagesAI(params);
+      appendLog(`✨ Mensagem gerada via <strong>Gemini IA</strong> com sucesso!`, 'log-success');
+      return aiResult;
+    } catch (err) {
+      appendLog(`⚠️ <strong>Gemini IA indisponível:</strong> ${escapeHTML(err.message)} → Usando gerador local de fallback.`, 'log-warning');
+      return generateMessages(params);
+    }
+  } else {
+    return generateMessages(params);
+  }
+}
+
 function capitalizeName(name) {
   return name.trim().split(' ').map(word => {
     if (word.length <= 2 && ['de', 'da', 'do', 'dos', 'das'].includes(word.toLowerCase())) {
@@ -327,6 +467,22 @@ function capitalizeName(name) {
     }
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   }).join(' ');
+}
+
+function updateAIStatus() {
+  const statusEl = document.getElementById('ai-status');
+  const key = localStorage.getItem('apoio_gemini_api_key');
+  if (statusEl) {
+    if (key) {
+      statusEl.innerHTML = `🟢 <strong>Gemini IA Ativa</strong>`;
+      statusEl.style.color = '#00ffcc';
+      statusEl.style.opacity = '1';
+    } else {
+      statusEl.innerHTML = `🔴 IA Inativa`;
+      statusEl.style.color = '';
+      statusEl.style.opacity = '0.6';
+    }
+  }
 }
 
 /* ==========================================================================
@@ -344,6 +500,7 @@ function renderGeneratedOutput(genData) {
     <div class="message-card" id="card-${id}">
       <div class="card-header">
         <div class="card-meta">
+          ${genData.isAI ? `<span class="meta-pill" style="background: rgba(0, 255, 204, 0.15); color: #00ffcc; border: 1px solid #00ffcc;">🤖 Gemini IA</span>` : ''}
           <span class="meta-pill">👤 Cliente: <strong>${escapeHTML(clientData.nome)}</strong></span>
           <span class="meta-pill">${clientData.classification.icon} ${escapeHTML(clientData.classification.label)}: <strong>${escapeHTML(clientData.medicamento)}</strong></span>
           <span class="meta-pill">🏬 Drogaria: <strong>${escapeHTML(clientData.drogaria)}</strong></span>
@@ -359,7 +516,7 @@ function renderGeneratedOutput(genData) {
         <button class="card-btn" id="tab-btn-pos_tratamento-${id}" onclick="switchToneTab(${id}, 'pos_tratamento')">🎯 Pós-Tratamento</button>
       </div>
 
-      <div class="card-body-text" id="text-container-${id}">${escapeHTML(versions.empatico)}</div>
+      <div class="card-body-text" id="text-container-${id}">${escapeHTML(typeof versions.empatico === 'object' ? versions.empatico.text : versions.empatico)}</div>
 
       <div class="card-actions">
         <button class="card-btn btn-copy" onclick="copyMessageText(${id})">📋 Copiar Mensagem</button>
@@ -391,7 +548,8 @@ function switchToneTab(id, toneKey) {
 
   const textContainer = document.getElementById(`text-container-${id}`);
   if (textContainer && versions[toneKey]) {
-    textContainer.innerText = versions[toneKey];
+    const val = versions[toneKey];
+    textContainer.innerText = typeof val === 'object' ? val.text : val;
   }
 
   ['empatico', 'atencioso', 'descontraido', 'pos_tratamento'].forEach(key => {
@@ -407,7 +565,8 @@ function copyMessageText(id) {
   if (!cardElem) return;
   const activeTone = cardElem.dataset.activeTone || 'empatico';
   const versions = JSON.parse(cardElem.dataset.versions);
-  const textToCopy = versions[activeTone].replace(/\*\*/g, '').replace(/\*/g, '');
+  const rawVal = versions[activeTone];
+  const textToCopy = (typeof rawVal === 'object' ? rawVal.text : rawVal).replace(/\*\*/g, '').replace(/\*/g, '');
 
   navigator.clipboard.writeText(textToCopy).then(() => {
     appendLog(`✅ Mensagem copiada com sucesso para a área de transferência!`, 'log-success');
@@ -507,7 +666,7 @@ function startWizard(defaultNome = '', defaultMed = '') {
   scrollToBottom();
 }
 
-function handleWizardSubmit(e) {
+async function handleWizardSubmit(e) {
   e.preventDefault();
   const nome = document.getElementById('wizNome').value;
   const medicamento = document.getElementById('wizMedicamento').value;
@@ -519,10 +678,10 @@ function handleWizardSubmit(e) {
   const sintoma = document.getElementById('wizSintoma').value;
   const dica = document.getElementById('wizDica').value;
 
-  const result = generateMessages({ nome, medicamento, tipoOverride, drogaria, farmaceutico, telefone, tempo, sintoma, dica });
-  
   const wiz = document.getElementById('wizardBox');
   if (wiz) wiz.remove();
+
+  const result = await generateMessagesSmart({ nome, medicamento, tipoOverride, drogaria, farmaceutico, telefone, tempo, sintoma, dica });
 
   const badgeStr = result.clientData.classification.icon + ' ' + result.clientData.classification.label;
   appendLog(`✨ Mensagem gerada [${badgeStr}] para <strong>${escapeHTML(nome)}</strong> (${escapeHTML(medicamento)})!`, 'log-success');
@@ -886,7 +1045,7 @@ function handleInputKeydown(e) {
   }
 }
 
-function executeCommand(inputCmd) {
+async function executeCommand(inputCmd) {
   const parts = parseCommandArgs(inputCmd);
   const mainCmd = parts[0] ? parts[0].toLowerCase() : '';
 
@@ -899,7 +1058,7 @@ function executeCommand(inputCmd) {
       if (parts.flags && (parts.flags.cliente || parts.flags.remedio || parts.flags.nome || parts.flags.medicamento)) {
         const nome = parts.flags.cliente || parts.flags.nome;
         const medicamento = parts.flags.remedio || parts.flags.medicamento;
-        const result = generateMessages({
+        const result = await generateMessagesSmart({
           nome: nome || 'Cliente',
           medicamento: medicamento || 'Medicamento',
           drogaria: parts.flags.drogaria || DEFAULT_CONFIG.drogaria,
@@ -909,16 +1068,36 @@ function executeCommand(inputCmd) {
           tempo: parts.flags.tempo || '',
           dica: parts.flags.dica || ''
         });
-        appendLog(`✨ Mensagem gerada via comando CLI para <strong>${escapeHTML(result.clientData.nome)}</strong>!`, 'log-success');
         renderGeneratedOutput(result);
       } else if (parts.length >= 3) {
         const nome = parts[1];
         const medicamento = parts.slice(2).join(' ');
-        const result = generateMessages({ nome, medicamento });
-        appendLog(`✨ Mensagem rápida gerada para <strong>${escapeHTML(nome)}</strong> (${escapeHTML(medicamento)})!`, 'log-success');
+        const result = await generateMessagesSmart({ nome, medicamento });
         renderGeneratedOutput(result);
       } else {
         startWizard();
+      }
+      break;
+
+    case 'apikey':
+    case 'gemini':
+    case 'ia':
+      if (parts[1] === 'remover' || parts[1] === 'limpar' || parts[1] === 'delete') {
+        localStorage.removeItem('apoio_gemini_api_key');
+        appendLog(`🔑 Chave de API do Gemini foi removida.`, 'log-warning');
+        updateAIStatus();
+      } else if (parts[1] === 'status' || !parts[1]) {
+        const key = localStorage.getItem('apoio_gemini_api_key');
+        if (key) {
+          const masked = key.slice(0, 6) + '...' + key.slice(-4);
+          appendLog(`🟢 <strong>Gemini IA Ativo!</strong> (Chave: ${masked})`, 'log-success');
+        } else {
+          appendLog(`🔴 <strong>Gemini IA Inativo.</strong> Configure com: <code class="log-info">apikey SUACHAVE</code>`, 'log-warning');
+        }
+      } else {
+        localStorage.setItem('apoio_gemini_api_key', parts[1].trim());
+        appendLog(`🔑 <strong>API do Gemini configurada com sucesso!</strong>`, 'log-success');
+        updateAIStatus();
       }
       break;
 
@@ -1112,6 +1291,11 @@ function showHelp() {
             <td><code>historico</code> (ou <code>historico limpar</code>)</td>
           </tr>
           <tr>
+            <td><code>apikey [chave]</code></td>
+            <td>Configura a API do Google Gemini para mensagens IA.</td>
+            <td><code>apikey AIzaSy...</code></td>
+          </tr>
+          <tr>
             <td><code>tema [matrix|amber|cyberpunk|dark]</code></td>
             <td>Altera o esquema de cores e estilo do CRT.</td>
             <td><code>tema amber</code></td>
@@ -1218,7 +1402,8 @@ function openWhatsApp(phone, id) {
   if (!cardElem) return;
   const activeTone = cardElem.dataset.activeTone || 'empatico';
   const versions = JSON.parse(cardElem.dataset.versions);
-  const text = versions[activeTone].replace(/\*\*/g, '*');
+  const rawVal = versions[activeTone];
+  const text = (typeof rawVal === 'object' ? rawVal.text : rawVal).replace(/\*\*/g, '*');
   const encodedText = encodeURIComponent(text);
 
   let url = '';

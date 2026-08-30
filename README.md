@@ -54,6 +54,8 @@ Além dos botões visuais, o usuário pode interagir diretamente via terminal:
 | `novo` / `guiado` | Abre o formulário guiado interativo. | `novo` |
 | `lote` / `batch` / `massa` | Abre o gerador em lote com proteção anti-spam. | `lote` |
 | `gerar [nome] [item]` | Gera mensagem rápida pela linha de comando. | `gerar "Maria" "Dipirona 1g"` |
+| `apikey [chave]` | Configura a chave da API do Google Gemini (IA). | `apikey AIzaSy...` |
+| `ia` / `gemini` | Exibe o status da IA ou remove a chave (`ia remover`). | `ia status` |
 | `historico` | Exibe o histórico de mensagens geradas no dia. | `historico` |
 | `historico limpar` | Limpa o histórico salvo localmente. | `historico limpar` |
 | `limpar` / `clear` | Limpa a tela do terminal CRT. | `limpar` |
@@ -97,4 +99,4 @@ URL de Produção:
 ### 👨⚕️ Créditos
 * **Farmácia**: Drogasil Mogilar
 * **Farmacêutico Responsável**: Maxwell
-* **Versão**: 2.0.0 (Anti-Spam & Multi-Services Ready)
+* **Versão**: 3.0.0 (Gemini IA + Anti-Spam & Multi-Services Ready)
