@@ -99,4 +99,4 @@ URL de Produção:
 ### 👨⚕️ Créditos
 * **Farmácia**: Drogasil Mogilar
 * **Farmacêutico Responsável**: Maxwell
-* **Versão**: 3.0.0 (Gemini IA + Anti-Spam & Multi-Services Ready)
+* **Versão**: 3.0.0 (Gemini 2.5 Flash IA + Anti-Spam & Multi-Services Ready)

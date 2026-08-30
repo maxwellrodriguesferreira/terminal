@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Terminal Apoio ao Tratamento & Serviços Farmacêuticos | Drogasil Mogilar</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260830-config-v3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -37,7 +37,7 @@
       <button class="tool-btn primary" onclick="startWizard()">✨ Nova Mensagem</button>
       <button class="tool-btn primary" style="background: var(--warning-color); color: #000;" onclick="startBatchWizard()">📦 Lote Anti-Spam WhatsApp</button>
       <button class="tool-btn" onclick="executeCommand('historico')">📜 Histórico</button>
-      <button class="tool-btn" onclick="openGeminiConfigPanel()">⚙️ Configurações</button>
+      <button class="tool-btn" id="geminiConfigBtn" type="button">⚙️ Configurações</button>
       <button class="tool-btn danger" onclick="executeCommand('limpar')">🧹 Limpar Terminal</button>
     </div>
 
@@ -61,6 +61,37 @@
     </footer>
   </div>
 
-  <script src="app.js"></script>
+  <section class="gemini-config-panel" id="geminiConfigPanel" aria-labelledby="geminiConfigTitle" hidden>
+    <div class="gemini-config-backdrop" data-gemini-close></div>
+    <div class="gemini-config-card" role="dialog" aria-modal="true" aria-labelledby="geminiConfigTitle">
+      <div class="gemini-config-header">
+        <div>
+          <h2 id="geminiConfigTitle">🧠 Configurações do Google Gemini</h2>
+          <p id="geminiConfigStatus" class="gemini-config-status">IA inativa</p>
+        </div>
+        <button class="gemini-icon-button" id="geminiCloseBtn" type="button" aria-label="Fechar configurações">✕</button>
+      </div>
+
+      <p class="gemini-config-description">Insira sua chave de API do Google AI Studio para habilitar mensagens geradas pelo Gemini 2.5 Flash. A chave é armazenada somente neste navegador.</p>
+
+      <form id="geminiConfigForm" novalidate>
+        <label class="gemini-config-label" for="geminiKeyInput">Chave de API do Gemini</label>
+        <div class="gemini-key-field">
+          <input id="geminiKeyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Cole sua chave aqui (ex.: AIza...)" aria-describedby="geminiConfigHint geminiConfigFeedback">
+          <button id="geminiKeyToggle" type="button" aria-pressed="false">Mostrar</button>
+        </div>
+        <p id="geminiConfigHint" class="gemini-config-hint">Obtenha uma chave em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. Não compartilhe sua chave.</p>
+
+        <div class="gemini-config-actions">
+          <button class="tool-btn primary" type="submit">💾 Salvar chave</button>
+          <button class="tool-btn" id="geminiTestBtn" type="button">🧪 Testar conexão</button>
+          <button class="tool-btn danger" id="geminiRemoveBtn" type="button">🗑️ Remover chave</button>
+        </div>
+        <p id="geminiConfigFeedback" class="gemini-config-feedback" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+
+  <script src="app.js?v=20260830-config-v3"></script>
 </body>
 </html>
