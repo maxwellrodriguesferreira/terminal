@@ -954,7 +954,16 @@ function executeCommand(inputCmd) {
     case 'ajuda':
     case 'help':
     case '?':
+    case 'menu':
+    case 'comandos':
+    case 'socorro':
       showHelp();
+      break;
+
+    case 'servicos':
+    case 'serviço':
+    case 'servicos':
+      showServicesHelp();
       break;
 
     case 'tema':
@@ -1052,63 +1061,120 @@ function reRenderHistoryItem(id) {
 function showHelp() {
   const helpHTML = `
     <div class="wizard-box">
-      <div class="wizard-title">❓ Guia de Comandos - Apoio ao Tratamento CLI</div>
+      <div class="wizard-title" style="color: var(--prompt-color);">
+        <span>❓ Menu de Ajuda & Guia de Comandos — Drogasil Mogilar</span>
+      </div>
+      <p class="log-dim" style="margin-bottom: 12px;">
+        👨⚕️ Bem-vindo ao sistema de acompanhamento do farmacêutico <strong>Maxwell</strong>. Utilize os botões interativos abaixo ou digite os comandos diretamente no terminal.
+      </p>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+        <button class="tool-btn primary" onclick="startWizard()">✨ Nova Mensagem (Individual)</button>
+        <button class="tool-btn primary" style="background: var(--warning-color); color: #000;" onclick="startBatchWizard()">📦 Lote Anti-Spam (Múltiplos)</button>
+        <button class="tool-btn" onclick="showServicesHelp()">🩺 Serviços Farmacêuticos Suportados</button>
+        <button class="tool-btn" onclick="showHistory()">📜 Ver Histórico</button>
+        <button class="tool-btn" onclick="toggleTheme()">🎨 Trocar Tema Visual</button>
+      </div>
+
+      <div class="wizard-title" style="font-size: 0.95rem; margin-top: 10px; margin-bottom: 6px;">⌨️ Tabela de Comandos CLI</div>
       <table class="help-table">
         <thead>
           <tr>
             <th>Comando</th>
-            <th>Descrição</th>
-            <th>Exemplo de Uso</th>
+            <th>Descrição / Ação</th>
+            <th>Exemplo Prático</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><code>novo</code> / <code>guiado</code></td>
-            <td>Abre o formulário guiado interativo no terminal.</td>
+            <td>Abre o formulário guiado de criação individual.</td>
             <td><code>novo</code></td>
           </tr>
           <tr>
-            <td><code>lote</code> / <code>batch</code></td>
-            <td>Gera mensagens em massa estritamente <strong>únicas e anti-spam</strong> para múltiplos clientes.</td>
+            <td><code>lote</code> / <code>massa</code> / <code>batch</code></td>
+            <td>Gera mensagens em massa 100% únicas (Anti-Spam).</td>
             <td><code>lote</code></td>
           </tr>
           <tr>
-            <td><code>gerar [nome] [remédio]</code></td>
-            <td>Gera mensagem instantânea diretamente pela linha de comando.</td>
-            <td><code>gerar "Juliana" "Dipirona 1g"</code></td>
+            <td><code>servicos</code> / <code>serviço</code></td>
+            <td>Lista os 8 serviços farmacêuticos e teste rápido.</td>
+            <td><code>servicos</code></td>
           </tr>
           <tr>
-            <td><code>gerar --flags...</code></td>
-            <td>Gera mensagem usando parâmetros nomeados avançados.</td>
-            <td><code>gerar --cliente "Pedro" --remedio "Omeprazol" --telefone "11999998888"</code></td>
-          </tr>
-          <tr>
-            <td><code>exemplos</code></td>
-            <td>Gera exemplos ilustrativos imediatos.</td>
-            <td><code>exemplos</code></td>
+            <td><code>gerar [nome] [item]</code></td>
+            <td>Gera mensagem instantânea diretamente pelo CLI.</td>
+            <td><code>gerar "Maria" "Dipirona 1g"</code></td>
           </tr>
           <tr>
             <td><code>historico</code></td>
-            <td>Lista todas as mensagens geradas anteriormente.</td>
+            <td>Exibe o histórico de mensagens geradas hoje.</td>
             <td><code>historico</code> (ou <code>historico limpar</code>)</td>
           </tr>
           <tr>
-            <td><code>tema [nome]</code></td>
-            <td>Altera o tema visual do terminal (matrix, amber, cyberpunk, dark).</td>
+            <td><code>tema [matrix|amber|cyberpunk|dark]</code></td>
+            <td>Altera o esquema de cores e estilo do CRT.</td>
             <td><code>tema amber</code></td>
           </tr>
           <tr>
-            <td><code>limpar</code></td>
-            <td>Limpa a tela do terminal.</td>
+            <td><code>limpar</code> / <code>clear</code></td>
+            <td>Limpa todas as saídas da tela do terminal.</td>
             <td><code>limpar</code></td>
           </tr>
         </tbody>
       </table>
-      <p class="log-dim" style="margin-top: 10px;">💡 <em>Dica:</em> Você também pode usar os botões do painel superior para acesso rápido sem digitar.</p>
     </div>
   `;
   const container = document.createElement('div');
   container.innerHTML = helpHTML;
+  terminalOutput.appendChild(container);
+  scrollToBottom();
+}
+
+function showServicesHelp() {
+  const servicesHTML = `
+    <div class="wizard-box">
+      <div class="wizard-title" style="color: var(--text-bright);">
+        <span>🩺 Guia de Serviços Farmacêuticos (Diferenciação Automática)</span>
+      </div>
+      <p class="log-dim" style="margin-bottom: 10px;">
+        O sistema identifica automaticamente qualquer um dos serviços abaixo e adapta as perguntas de acompanhamento pós-atendimento:
+      </p>
+
+      <ul style="list-style: none; padding: 0; line-height: 1.6;">
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>💉 1. Aplicação de Injetáveis</strong> — Acompanha dor no local da aplicação, vermelhidão ou desconforto.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>📲 2. Aplicação Sensor Libre</strong> — Acompanha fixação no braço e sincronização com o leitor/app de glicemia.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>🩺 3. Aferição de Pressão Arterial</strong> — Acompanha melhora de sintomas de tontura, dores de cabeça e mal-estar.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>👂 4. Perfuração do Lóbulo Auricular</strong> — Acompanha cicatrização do furo, higienização e antissepsia.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>🤧 5. Teste de Influenza (Gripe)</strong> — Acompanha evolução da febre, hidratação e repouso.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>🦠 6. Teste de COVID-19</strong> — Acompanha protocolos de isolamento, febre e sinais de alerta.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>🫁 7. Teste de Painel Respiratório</strong> — Acompanha alívio da tosse, indisposição e vírus respiratórios.
+        </li>
+        <li style="margin-bottom: 8px; border-bottom: 1px dashed var(--border-color); padding-bottom: 6px;">
+          <strong>⚖️ 8. Avaliação de Bioimpedância</strong> — Acompanha leitura do relatório de massa magra/gordura e metas.
+        </li>
+      </ul>
+
+      <div style="margin-top: 10px;">
+        <button class="tool-btn primary" onclick="startWizard()">✨ Criar Atendimento de Serviço</button>
+      </div>
+    </div>
+  `;
+  const container = document.createElement('div');
+  container.innerHTML = servicesHTML;
   terminalOutput.appendChild(container);
   scrollToBottom();
 }
