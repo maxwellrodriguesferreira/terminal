@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal Apoio ao Tratamento & Serviços Farmacêuticos | Drogasil Mogilar</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="theme-matrix">
+  <div class="crt-overlay" id="crtOverlay"></div>
+
+  <div class="app-container">
+    <!-- Terminal Header -->
+    <header class="terminal-header">
+      <div class="window-controls">
+        <span class="control close"></span>
+        <span class="control minimize"></span>
+        <span class="control maximize"></span>
+      </div>
+      <div class="terminal-title">
+        <span class="icon">💊🩺</span> maxwell@drogasil-mogilar: ~/apoio-tratamento
+      </div>
+      <div class="header-actions">
+        <button id="themeToggleBtn" title="Trocar Tema Visual (Matrix / Amber / Cyberpunk / Dark)">🎨 Tema</button>
+        <button id="crtToggleBtn" class="active" title="Efeito Tubo CRT">📺 Scanlines</button>
+      </div>
+    </header>
+
+    <!-- Visual Toolbar / Quick Actions -->
+    <div class="quick-toolbar">
+      <button class="tool-btn primary" onclick="startWizard()">✨ Nova Mensagem</button>
+      <button class="tool-btn primary" style="background: var(--warning-color); color: #000;" onclick="startBatchWizard()">📦 Lote Anti-Spam WhatsApp</button>
+      <button class="tool-btn" onclick="executeCommand('historico')">📜 Histórico</button>
+      <button class="tool-btn danger" onclick="executeCommand('limpar')">🧹 Limpar Terminal</button>
+    </div>
+
+    <!-- Main Output Buffer -->
+    <main class="terminal-body" id="terminalOutput" tabindex="0">
+      <!-- Welcome Banner inserted dynamically or static initial output -->
+    </main>
+
+    <!-- Terminal Input Prompt -->
+    <footer class="terminal-footer">
+      <div class="prompt-line">
+        <span class="prompt-user">maxwell@mogilar</span><span class="prompt-sep">:</span><span class="prompt-path">~/apoio-tratamento</span><span class="prompt-symbol">$</span>
+        <input type="text" id="cliInput" placeholder="Digite um comando (ex: 'novo' ou 'ajuda') ou pressione ENTER..." autocomplete="off" spellcheck="false" autofocus>
+      </div>
+      <div class="status-bar">
+        <span class="status-item"><span class="status-dot"></span> Drogaria: <strong>Drogasil Mogilar</strong></span>
+        <span class="status-item">👨⚕️ Farmacêutico: <strong>Maxwell</strong></span>
+        <span class="status-item" id="historyCounter">📋 Mensagens hoje: 0</span>
+        <span class="status-hint">Pressione <kbd>TAB</kbd> ou <kbd>↑</kbd>/<kbd>↓</kbd> para histórico de comandos</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
