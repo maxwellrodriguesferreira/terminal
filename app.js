@@ -323,11 +323,11 @@ function generateMessages(params) {
 }
 
 /* ==========================================================================
-   INTEGRAÇÃO DE IA (GOOGLE GEMINI 2.5 FLASH)
+   INTEGRAÇÃO DE IA (GOOGLE GEMINI 3.6 FLASH)
    ========================================================================== */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_MODEL_LABEL = 'Gemini 2.5 Flash';
+const GEMINI_MODEL = 'gemini-3.6-flash';
+const GEMINI_MODEL_LABEL = 'Gemini 3.6 Flash';
 
 function getGeminiEndpoint(apiKey) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;

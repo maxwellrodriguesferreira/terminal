@@ -13,7 +13,9 @@ const requirements = [
   ['armazenamento local', app.includes("localStorage.setItem('apoio_gemini_api_key'")],
   ['estilos do painel', css.includes('.gemini-config-panel')],
   ['sem painel dinâmico legado', !app.includes('gemini-config-panel')],
-  ['sem dependência de dialog', !app.includes('.showModal()')]
+  ['sem dependência de dialog', !app.includes('.showModal()')],
+  ['modelo Gemini 3.6 Flash', app.includes("const GEMINI_MODEL = 'gemini-3.6-flash'")],
+  ['rótulo Gemini 3.6 Flash', app.includes("const GEMINI_MODEL_LABEL = 'Gemini 3.6 Flash'")]
 ];
 
 const failed = requirements.filter(([, passed]) => !passed).map(([name]) => name);
