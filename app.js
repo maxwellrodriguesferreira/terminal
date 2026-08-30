@@ -477,18 +477,172 @@ function updateAIStatus() {
       statusEl.innerHTML = `🟢 <strong>Gemini IA Ativa</strong>`;
       statusEl.style.color = '#00ffcc';
       statusEl.style.opacity = '1';
+      statusEl.style.cursor = 'pointer';
+      statusEl.onclick = openGeminiConfigPanel;
     } else {
       statusEl.innerHTML = `🔴 IA Inativa`;
       statusEl.style.color = '';
       statusEl.style.opacity = '0.6';
+      statusEl.style.cursor = 'pointer';
+      statusEl.onclick = openGeminiConfigPanel;
     }
   }
 }
 
-/* ==========================================================================
-   RENDERIZAÇÃO DE INTERFACE E CARDS NO TERMINAL
-   ========================================================================== */
+function openGeminiConfigPanel() {
+  const oldPanel = document.getElementById('gemini-config-panel');
+  if (oldPanel) oldPanel.remove();
 
+  const currentKey = localStorage.getItem('apoio_gemini_api_key') || '';
+  const maskedKey = currentKey ? currentKey.slice(0, 8) + '••••••••••••' + currentKey.slice(-4) : '';
+  const isActive = !!currentKey;
+
+  let panelHTML = `<div class="wizard-box" id="gemini-config-panel">
+      <div class="wizard-title" style="color: #00ffcc; display: flex; align-items: center; gap: 8px;">
+        <span>🧠 Configuração do Google Gemini IA</span>
+        <span style="font-size:0.7rem;background:${isActive ? 'rgba(0,255,100,0.15)' : 'rgba(255,80,80,0.15)'};color:${isActive ? '#00ff66' : '#ff5555'};padding:2px 10px;border-radius:12px;border:1px solid ${isActive ? '#00ff66' : '#ff5555'};">
+          ${isActive ? '🟢 ATIVA' : '🔴 INATIVA'}
+        </span>
+      </div>
+
+      <div style="margin:12px 0;padding:12px;background:rgba(255,255,255,0.03);border:1px dashed var(--border-color);border-radius:6px;">
+        <p class="log-dim" style="margin:0 0 8px 0;font-size:0.85rem;">
+          🔑 A chave da API permite ao terminal gerar mensagens farmacêuticas usando inteligência artificial do Google Gemini 1.5 Flash.
+          Sem chave, o sistema funciona normalmente com os templates locais.
+        </p>
+        <p class="log-dim" style="margin:0;font-size:0.8rem;">📖 <strong>Como obter sua chave gratuita:</strong></p>
+        <ol style="margin:6px 0 0 0;padding-left:20px;font-size:0.8rem;line-height:1.8;color:var(--text-dim);">
+          <li>Acesse <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#00ffcc;text-decoration:underline;">aistudio.google.com/apikey</a></li>
+          <li>Faça login com sua conta Google</li>
+          <li>Clique em <strong>"Create API Key"</strong></li>
+          <li>Copie a chave gerada (começa com <code>AIzaSy...</code>)</li>
+          <li>Cole no campo abaixo e clique em <strong>Salvar</strong></li>
+        </ol>
+      </div>`;
+
+  if (isActive) {
+    panelHTML += `<div style="margin-bottom:12px;padding:10px;background:rgba(0,255,100,0.05);border:1px solid rgba(0,255,100,0.2);border-radius:6px;">
+        <p style="margin:0;font-size:0.82rem;color:#00ff66;">✅ <strong>Chave atual:</strong> <code style="background:rgba(0,0,0,0.3);padding:2px 8px;border-radius:4px;">${maskedKey}</code></p>
+      </div>`;
+  }
+
+  panelHTML += `<div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:0.85rem;">🔐 ${isActive ? 'Atualizar' : 'Inserir'} Chave de API do Gemini</label>
+        <input type="password" id="geminiKeyInput" placeholder="Cole aqui sua chave (ex: AIzaSyB...)" value="" style="font-family:'Fira Code',monospace;letter-spacing:1px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <label style="font-size:0.72rem;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="geminiKeyToggle" onchange="document.getElementById('geminiKeyInput').type=this.checked?'text':'password'"> Mostrar chave
+          </label>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <button class="tool-btn primary" onclick="handleGeminiSave()" style="background:#00ffcc;color:#000;font-weight:600;">💾 Salvar Chave</button>
+        <button class="tool-btn" onclick="handleGeminiTest()" style="border-color:#00ffcc;color:#00ffcc;">🧪 Testar Conexão</button>
+        ${isActive ? '<button class="tool-btn danger" onclick="handleGeminiRemove()">🗑️ Remover Chave</button>' : ''}
+        <button class="tool-btn" onclick="handleGeminiClose()" style="margin-left:auto;">✖ Fechar</button>
+      </div>
+      <div id="gemini-config-feedback" style="min-height:24px;"></div>
+    </div>`;
+
+  const container = document.createElement('div');
+  container.innerHTML = panelHTML;
+  terminalOutput.appendChild(container);
+  setTimeout(() => { const i = document.getElementById('geminiKeyInput'); if (i) i.focus(); }, 100);
+  scrollToBottom();
+}
+
+function handleGeminiSave() {
+  const input = document.getElementById('geminiKeyInput');
+  const feedback = document.getElementById('gemini-config-feedback');
+  if (!input || !feedback) return;
+
+  const key = input.value.trim();
+  if (!key) {
+    feedback.innerHTML = `<p style="color:#ff5555;font-size:0.82rem;">❌ Insira uma chave válida no campo acima.</p>`;
+    return;
+  }
+
+  if (!key.startsWith('AIza')) {
+    feedback.innerHTML = `<p style="color:#ffaa00;font-size:0.82rem;">⚠️ Essa chave não parece válida (chaves do Google Gemini geralmente começam com <code>AIzaSy...</code>). Deseja salvar mesmo assim?
+      <button class="tool-btn" onclick="forceGeminiSave('${escapeHTML(key)}')" style="margin-left:8px;font-size:0.75rem;">Sim, salvar</button></p>`;
+    return;
+  }
+
+  saveGeminiKey(key);
+}
+
+function forceGeminiSave(key) {
+  saveGeminiKey(key);
+}
+
+function saveGeminiKey(key) {
+  localStorage.setItem('apoio_gemini_api_key', key);
+  updateAIStatus();
+  appendLog(`🔑 <strong>Chave do Gemini IA salva com sucesso!</strong> As mensagens agora serão geradas com inteligência artificial.`, 'log-success');
+  const panel = document.getElementById('gemini-config-panel');
+  if (panel) panel.remove();
+  openGeminiConfigPanel();
+}
+
+async function handleGeminiTest() {
+  const feedback = document.getElementById('gemini-config-feedback');
+  if (!feedback) return;
+
+  const inputEl = document.getElementById('geminiKeyInput');
+  const testKey = (inputEl && inputEl.value.trim()) || localStorage.getItem('apoio_gemini_api_key') || '';
+
+  if (!testKey) {
+    feedback.innerHTML = `<p style="color:#ff5555;font-size:0.82rem;">❌ Nenhuma chave para testar. Cole ou salve uma chave primeiro.</p>`;
+    return;
+  }
+
+  feedback.innerHTML = `<p style="color:#00ffcc;font-size:0.82rem;">⏳ Testando conexão com o Google Gemini 1.5 Flash...</p>`;
+
+  try {
+    const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + testKey;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Responda apenas: OK' }] }],
+        generationConfig: { maxOutputTokens: 10 }
+      })
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      const errMsg = errData.error?.message || response.statusText;
+      feedback.innerHTML = `<p style="color:#ff5555;font-size:0.82rem;">❌ <strong>Falha na conexão (${response.status}):</strong> ${escapeHTML(errMsg)}</p>`;
+      return;
+    }
+
+    const data = await response.json();
+    if (data.candidates && data.candidates[0]) {
+      feedback.innerHTML = `<div style="padding:8px;background:rgba(0,255,100,0.08);border:1px solid #00ff66;border-radius:6px;">
+        <p style="color:#00ff66;font-size:0.85rem;margin:0;">✅ <strong>Conexão bem-sucedida!</strong> O Google Gemini 1.5 Flash respondeu corretamente. A IA está pronta para gerar mensagens farmacêuticas inteligentes.</p></div>`;
+    } else {
+      feedback.innerHTML = `<p style="color:#ffaa00;font-size:0.82rem;">⚠️ A API respondeu, mas sem conteúdo válido. Verifique a chave.</p>`;
+    }
+  } catch (err) {
+    feedback.innerHTML = `<p style="color:#ff5555;font-size:0.82rem;">❌ <strong>Erro de rede:</strong> ${escapeHTML(err.message)}. Verifique sua conexão com a internet.</p>`;
+  }
+}
+
+function handleGeminiRemove() {
+  localStorage.removeItem('apoio_gemini_api_key');
+  updateAIStatus();
+  appendLog(`🗑️ Chave do Gemini IA removida. O sistema voltou ao modo de geração local.`, 'log-warning');
+  const panel = document.getElementById('gemini-config-panel');
+  if (panel) panel.remove();
+  openGeminiConfigPanel();
+}
+
+function handleGeminiClose() {
+  const panel = document.getElementById('gemini-config-panel');
+  if (panel) panel.remove();
+  cliInput.focus();
+}
 /**
  * Exibe o resultado da geração com cards e botões de ação rápidos
  */
@@ -1086,14 +1240,17 @@ async function executeCommand(inputCmd) {
         localStorage.removeItem('apoio_gemini_api_key');
         appendLog(`🔑 Chave de API do Gemini foi removida.`, 'log-warning');
         updateAIStatus();
-      } else if (parts[1] === 'status' || !parts[1]) {
+      } else if (parts[1] === 'status') {
         const key = localStorage.getItem('apoio_gemini_api_key');
         if (key) {
           const masked = key.slice(0, 6) + '...' + key.slice(-4);
           appendLog(`🟢 <strong>Gemini IA Ativo!</strong> (Chave: ${masked})`, 'log-success');
         } else {
-          appendLog(`🔴 <strong>Gemini IA Inativo.</strong> Configure com: <code class="log-info">apikey SUACHAVE</code>`, 'log-warning');
+          appendLog(`🔴 <strong>Gemini IA Inativo.</strong>`, 'log-warning');
+          openGeminiConfigPanel();
         }
+      } else if (!parts[1]) {
+        openGeminiConfigPanel();
       } else {
         localStorage.setItem('apoio_gemini_api_key', parts[1].trim());
         appendLog(`🔑 <strong>API do Gemini configurada com sucesso!</strong>`, 'log-success');
