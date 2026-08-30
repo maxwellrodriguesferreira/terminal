@@ -490,6 +490,8 @@ function updateAIStatus() {
 }
 
 function openGeminiConfigPanel() {
+  console.log('openGeminiConfigPanel triggered');
+  const targetOutput = document.getElementById('terminalOutput');
   const oldPanel = document.getElementById('gemini-config-panel');
   if (oldPanel) oldPanel.remove();
 
@@ -547,7 +549,7 @@ function openGeminiConfigPanel() {
 
   const container = document.createElement('div');
   container.innerHTML = panelHTML;
-  terminalOutput.appendChild(container);
+  targetOutput.appendChild(container);
   setTimeout(() => { const i = document.getElementById('geminiKeyInput'); if (i) i.focus(); }, 100);
   scrollToBottom();
 }
