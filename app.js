@@ -328,6 +328,76 @@ function generateMessages(params) {
 
 const GEMINI_MODEL = 'gemini-3.6-flash';
 const GEMINI_MODEL_LABEL = 'Gemini 3.6 Flash';
+const GEMINI_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    empatico: { type: 'STRING' },
+    atencioso: { type: 'STRING' },
+    descontraido: { type: 'STRING' },
+    pos_tratamento: { type: 'STRING' }
+  },
+  required: ['empatico', 'atencioso', 'descontraido', 'pos_tratamento']
+};
+const GEMINI_FAILURE_RESET_MS = 10 * 60 * 1000;
+const GEMINI_FAILURE_THRESHOLD = 3;
+
+function getGeminiFailureState() {
+  try {
+    const payload = JSON.parse(localStorage.getItem('apoio_gemini_failure_state') || '{"count":0,"lastFailureAt":0,"blockedUntil":0}');
+    return {
+      count: Number(payload.count) || 0,
+      lastFailureAt: Number(payload.lastFailureAt) || 0,
+      blockedUntil: Number(payload.blockedUntil) || 0
+    };
+  } catch (error) {
+    return { count: 0, lastFailureAt: 0, blockedUntil: 0 };
+  }
+}
+
+function setGeminiFailureState(nextState) {
+  localStorage.setItem('apoio_gemini_failure_state', JSON.stringify(nextState));
+}
+
+function isGeminiTemporarilyBlocked() {
+  const state = getGeminiFailureState();
+  if (state.blockedUntil && Date.now() < state.blockedUntil) {
+    return true;
+  }
+
+  if (state.blockedUntil && Date.now() >= state.blockedUntil) {
+    setGeminiFailureState({ count: 0, lastFailureAt: 0, blockedUntil: 0 });
+  }
+
+  return false;
+}
+
+function registerGeminiFailure(err) {
+  const now = Date.now();
+  const state = getGeminiFailureState();
+  const isInWindow = state.lastFailureAt && now - state.lastFailureAt <= GEMINI_FAILURE_RESET_MS;
+
+  const nextState = {
+    count: isInWindow ? state.count + 1 : 1,
+    lastFailureAt: now,
+    blockedUntil: 0
+  };
+
+  if (nextState.count >= GEMINI_FAILURE_THRESHOLD) {
+    nextState.blockedUntil = now + GEMINI_FAILURE_RESET_MS;
+  }
+
+  setGeminiFailureState(nextState);
+
+  if (nextState.blockedUntil) {
+    appendLog(`🛑 <strong>Gemini IA:</strong> muitas falhas consecutivas. A IA ficará bloqueada por 10 minutos antes de tentar novamente.`, 'log-warning');
+  } else {
+    appendLog(`⚠️ <strong>Gemini IA:</strong> falha de resposta. ${escapeHTML(err?.message || 'Erro desconhecido')} → fallback local.`, 'log-warning');
+  }
+}
+
+function resetGeminiFailureState() {
+  setGeminiFailureState({ count: 0, lastFailureAt: 0, blockedUntil: 0 });
+}
 
 function getGeminiEndpoint(apiKey) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -350,7 +420,9 @@ async function callGeminiAPI(promptText) {
       }],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 1000
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+        responseSchema: GEMINI_RESPONSE_SCHEMA
       }
     })
   });
@@ -362,10 +434,142 @@ async function callGeminiAPI(promptText) {
   }
 
   const data = await response.json();
-  if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+  if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
     return data.candidates[0].content.parts[0].text;
   }
   throw new Error("Resposta inválida recebida da API Gemini.");
+}
+
+function sanitizeGeminiJsonResponse(rawText) {
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error('Resposta vazia recebida da API Gemini.');
+  }
+  const synonyms = {
+    empatico: 'empatico', empático: 'empatico', empatica: 'empatico', tom_empatico: 'empatico', opcao_1: 'empatico',
+    atencioso: 'atencioso', atenciosa: 'atencioso', padrao: 'atencioso', padrão: 'atencioso', tom_atencioso: 'atencioso', opcao_2: 'atencioso',
+    descontraido: 'descontraido', descontraído: 'descontraido', leve: 'descontraido', tom_descontraido: 'descontraido', opcao_3: 'descontraido',
+    pos_tratamento: 'pos_tratamento', postratamento: 'pos_tratamento', pos_atendimento: 'pos_tratamento', pos_venda: 'pos_tratamento', retorno: 'pos_tratamento', pos: 'pos_tratamento', opcao_4: 'pos_tratamento'
+  };
+  const normKey = (k) => {
+    if (!k) return '';
+    const c = String(k).toLowerCase().replace(/[\s_-]+/g, '_').trim();
+    if (synonyms[c]) return synonyms[c];
+    const c2s = c.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+    if (synonyms[c2s]) return synonyms[c2s];
+    if (c.includes('empat')) return 'empatico';
+    if (c.includes('atenc')) return 'atencioso';
+    if (c.includes('descon') || c.includes('leve')) return 'descontraido';
+    if (c.includes('pos') || c.includes('pós') || c.includes('retorn')) return 'pos_tratamento';
+    return '';
+  };
+  const cleanVal = (v) => {
+    if (typeof v !== 'string') return v ? String(v) : '';
+    return v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
+  };
+  const extractObj = (obj) => {
+    if (!obj || typeof obj !== 'object') return null;
+    if (Array.isArray(obj)) {
+      if (obj.length > 0 && typeof obj[0] === 'string') {
+        const res = {};
+        if (obj[0]) res.empatico = cleanVal(obj[0]);
+        if (obj[1]) res.atencioso = cleanVal(obj[1]);
+        if (obj[2]) res.descontraido = cleanVal(obj[2]);
+        if (obj[3]) res.pos_tratamento = cleanVal(obj[3]);
+        return Object.keys(res).length > 0 ? res : null;
+      }
+      const merged = {};
+      for (const it of obj) {
+        const sub = extractObj(it);
+        if (sub) Object.assign(merged, sub);
+      }
+      return Object.keys(merged).length > 0 ? merged : null;
+    }
+    const collected = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const nk = normKey(k);
+      if (nk && typeof v === 'string' && v.trim()) {
+        collected[nk] = cleanVal(v);
+      } else if (v && typeof v === 'object') {
+        const sub = extractObj(v);
+        if (sub) {
+          for (const [sk, sv] of Object.entries(sub)) {
+            if (sv && !collected[sk]) collected[sk] = sv;
+          }
+        }
+      }
+    }
+    return Object.keys(collected).length > 0 ? collected : null;
+  };
+  let cleaned = rawText.replace(/^```(?:json)?/gim, '').replace(/```$/gim, '').trim();
+  const candidates = [];
+  const b1 = cleaned.indexOf('{'), b2 = cleaned.lastIndexOf('}');
+  if (b1 !== -1 && b2 > b1) candidates.push(cleaned.slice(b1, b2 + 1));
+  const k1 = cleaned.indexOf('['), k2 = cleaned.lastIndexOf(']');
+  if (k1 !== -1 && k2 > k1) candidates.push(cleaned.slice(k1, k2 + 1));
+  candidates.push(cleaned);
+  for (const cand of candidates) {
+    try {
+      const ext = extractObj(JSON.parse(cand));
+      if (ext && Object.keys(ext).length > 0) {
+        return { empatico: ext.empatico || '', atencioso: ext.atencioso || '', descontraido: ext.descontraido || '', pos_tratamento: ext.pos_tratamento || '' };
+      }
+    } catch (e) {
+      try {
+        const sanitized = cand.replace(/"(?:[^"\\]|\\.)*"/gs, (m) => m.replace(/\r?\n/g, '\\n'));
+        const ext = extractObj(JSON.parse(sanitized));
+        if (ext && Object.keys(ext).length > 0) {
+          return { empatico: ext.empatico || '', atencioso: ext.atencioso || '', descontraido: ext.descontraido || '', pos_tratamento: ext.pos_tratamento || '' };
+        }
+      } catch (e2) {}
+    }
+  }
+  const recovered = {};
+  const keys = ['empatico', 'atencioso', 'descontraido', 'pos_tratamento', 'posTratamento', 'postratamento', 'pos-tratamento', 'pos_atendimento', 'pos_venda', 'pos', 'empático', 'descontraído', 'padrão', 'padrao'];
+  const keyRe = new RegExp(`(?:"|'|\\b)(${keys.join('|')})(?:"|'|\\b)\\s*:\\s*`, 'gi');
+  const matches = [];
+  let m;
+  while ((m = keyRe.exec(cleaned)) !== null) {
+    matches.push({ normKey: normKey(m[1]), start: m.index + m[0].length, index: m.index });
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i];
+    const nxt = matches[i + 1];
+    let seg = (nxt ? cleaned.slice(cur.start, nxt.index) : cleaned.slice(cur.start)).trim();
+    if (seg.startsWith('"') || seg.startsWith("'")) {
+      const q = seg[0];
+      let val = '', esc = false, closed = false;
+      for (let j = 1; j < seg.length; j++) {
+        const ch = seg[j];
+        if (esc) { val += ch; esc = false; continue; }
+        if (ch === '\\') { val += ch; esc = true; continue; }
+        if (ch === q) {
+          const rest = seg.slice(j + 1).trim();
+          if (rest === '' || rest.startsWith(',') || rest.startsWith('}') || rest.startsWith(']') || /^(?:(?:"|'|\b)[a-z0-9_]+(?:"|'|\b)\s*:)/i.test(rest)) {
+            closed = true;
+            break;
+          }
+        }
+        val += ch;
+      }
+      if (cur.normKey && (!recovered[cur.normKey] || closed)) recovered[cur.normKey] = cleanVal(val);
+    } else {
+      let raw = seg.replace(/[,}\]]+$/, '').trim();
+      if (cur.normKey && !recovered[cur.normKey]) recovered[cur.normKey] = cleanVal(raw);
+    }
+  }
+  if (Object.keys(recovered).length > 0) {
+    return { empatico: recovered.empatico || '', atencioso: recovered.atencioso || '', descontraido: recovered.descontraido || '', pos_tratamento: recovered.pos_tratamento || '' };
+  }
+  const secRe = /(?:^|\n)\s*(?:[\d*-.]+\s*)?(?:tom\s+)?(emp[aá]tico|atencioso|padr[aã]o|descontra[ií]do|leve|p[oó]s[-_ ]?tratamento|p[oó]s[-_ ]?atendimento|p[oó]s)\s*[:=-]\s*([\s\S]*?)(?=(?:\n\s*(?:[\d*-.]+\s*)?(?:tom\s+)?(?:emp[aá]tico|atencioso|padr[aã]o|descontra[ií]do|leve|p[oó]s[-_ ]?tratamento|p[oó]s[-_ ]?atendimento|p[oó]s)\s*[:=-])|$)/gi;
+  let sm;
+  while ((sm = secRe.exec(cleaned)) !== null) {
+    const nk = normKey(sm[1]), sv = cleanVal(sm[2]);
+    if (nk && sv) recovered[nk] = sv;
+  }
+  if (Object.keys(recovered).length > 0) {
+    return { empatico: recovered.empatico || '', atencioso: recovered.atencioso || '', descontraido: recovered.descontraido || '', pos_tratamento: recovered.pos_tratamento || '' };
+  }
+  throw new Error('A resposta da IA não estava em JSON válido para as mensagens.');
 }
 
 async function generateMessagesAI(params) {
@@ -399,7 +603,11 @@ REGRAS OBRIGATÓRIAS:
 1. Tom estritamente humanizado, acolhedor, ético e farmacêutico.
 2. Formate as mensagens adequadamente para o WhatsApp (use quebras de linha limpas e emojis pertinentes).
 3. Adapte se for medicamento ou serviço (ex: para bioimpedância comente sobre o relatório; para sensor libre sobre a fixação/sincronização; para medicamentos sobre posologia e hidratação).
-4. Responda ESTRITAMENTE em formato JSON VÁLIDO com exatamente as seguintes chaves (sem Markdown extra em volta, apenas o JSON bruto):
+4. RESPOSTA ESTRITAMENTE COMO JSON VÁLIDO, SEM QUALQUER TEXTO EXTRA, SEM MARKDOWN, SEM EXPLICAÇÃO, SEM COMENTÁRIOS, SEM LINHA DE ABERTURA OU FECHAMENTO.
+5. A resposta deve ser um único objeto JSON com exatamente estas chaves, em ordem: empatico, atencioso, descontraido, pos_tratamento.
+6. Cada valor deve ser uma string em português do Brasil, sem aspas escapadas desnecessárias, sem caracteres de quebra de linha soltos e sem texto fora do JSON.
+7. Se houver qualquer dúvida, devolva JSON válido com strings curtas e profissionais, nunca com prosa fora do objeto.
+JSON EXATO:
 {
   "empatico": "mensagem tom empático...",
   "atencioso": "mensagem tom atencioso e profissional...",
@@ -409,8 +617,7 @@ REGRAS OBRIGATÓRIAS:
 `;
 
   const rawText = await callGeminiAPI(prompt);
-  const cleanedText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-  const parsedJSON = JSON.parse(cleanedText);
+  const parsedJSON = sanitizeGeminiJsonResponse(rawText);
 
   // Aplicar proteção Anti-Spam nas mensagens da IA (Zero-Width Space + Hash Signature)
   function applyAntiSpamProtection(text) {
@@ -453,17 +660,25 @@ REGRAS OBRIGATÓRIAS:
 
 async function generateMessagesSmart(params) {
   const apiKey = localStorage.getItem('apoio_gemini_api_key');
-  if (apiKey) {
-    appendLog(`🤖 <strong>Gemini IA:</strong> Consultando a inteligência artificial para <strong>${escapeHTML(params.nome || 'Cliente')}</strong>...`, 'log-info');
-    try {
-      const aiResult = await generateMessagesAI(params);
-      appendLog(`✨ Mensagem gerada via <strong>Gemini IA</strong> com sucesso!`, 'log-success');
-      return aiResult;
-    } catch (err) {
-      appendLog(`⚠️ <strong>Gemini IA indisponível:</strong> ${escapeHTML(err.message)} → Usando gerador local de fallback.`, 'log-warning');
-      return generateMessages(params);
-    }
-  } else {
+  if (!apiKey) {
+    return generateMessages(params);
+  }
+
+  if (isGeminiTemporarilyBlocked()) {
+    appendLog(`🛑 <strong>Gemini IA bloqueada temporariamente.</strong> Usando gerador local de fallback.`, 'log-warning');
+    return generateMessages(params);
+  }
+
+  appendLog(`🤖 <strong>Gemini IA:</strong> Consultando a inteligência artificial para <strong>${escapeHTML(params.nome || 'Cliente')}</strong>...`, 'log-info');
+
+  try {
+    const aiResult = await generateMessagesAI(params);
+    resetGeminiFailureState();
+    appendLog(`✨ Mensagem gerada via <strong>Gemini IA</strong> com sucesso!`, 'log-success');
+    return aiResult;
+  } catch (err) {
+    registerGeminiFailure(err);
+    appendLog(`⚠️ <strong>Gemini IA indisponível:</strong> ${escapeHTML(err.message)} → Usando gerador local de fallback.`, 'log-warning');
     return generateMessages(params);
   }
 }
@@ -481,9 +696,15 @@ function updateAIStatus() {
   const statusEl = document.getElementById('ai-status');
   const key = localStorage.getItem('apoio_gemini_api_key');
   if (statusEl) {
-    if (key) {
+    if (key && !isGeminiTemporarilyBlocked()) {
       statusEl.innerHTML = `🟢 <strong>Gemini IA Ativa</strong>`;
       statusEl.style.color = '#00ffcc';
+      statusEl.style.opacity = '1';
+      statusEl.style.cursor = 'pointer';
+      statusEl.onclick = openGeminiConfigPanel;
+    } else if (key && isGeminiTemporarilyBlocked()) {
+      statusEl.innerHTML = `🟡 <strong>Gemini IA Temporariamente Bloqueada</strong>`;
+      statusEl.style.color = '#ffcc66';
       statusEl.style.opacity = '1';
       statusEl.style.cursor = 'pointer';
       statusEl.onclick = openGeminiConfigPanel;
