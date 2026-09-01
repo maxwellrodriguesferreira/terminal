@@ -2,9 +2,15 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0d0a" id="metaThemeColor">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Apoio Tratamento">
+  <meta name="format-detection" content="telephone=no">
   <title>Terminal Apoio ao Tratamento & Serviços Farmacêuticos | Drogasil Mogilar</title>
-  <link rel="stylesheet" href="style.css?v=20260830-gemini-3-6-flash-v1">
+  <link rel="stylesheet" href="style.css?v=20260901-mobile-v1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -23,24 +29,24 @@
       <div class="terminal-title">
         <span class="icon">💊🩺</span> <span id="headerTerminalTitle">maxwell@drogasil-mogilar: ~/apoio-tratamento</span>
       </div>
-      <div class="terminal-title" id="ai-status" style="font-size: 0.7rem; margin-left: 8px; opacity: 0.6;">
+      <div class="terminal-title" id="ai-status">
         🔴 IA Inativa
       </div>
       <div class="header-actions">
-        <button id="themeToggleBtn" title="Trocar Tema Visual (Matrix / Amber / Cyberpunk / Dark)">🎨 Tema</button>
-        <button id="crtToggleBtn" class="active" title="Efeito Tubo CRT">📺 Scanlines</button>
-        <button id="logoutBtn" class="tool-btn danger" title="Encerrar Sessão">🔒 Sair</button>
+        <button id="themeToggleBtn" type="button" title="Trocar Tema Visual (Matrix / Amber / Cyberpunk / Dark)">🎨 Tema</button>
+        <button id="crtToggleBtn" type="button" class="active" title="Efeito Tubo CRT">📺 Scanlines</button>
+        <button id="logoutBtn" type="button" class="tool-btn danger" title="Encerrar Sessão">🔒 Sair</button>
       </div>
     </header>
 
     <!-- Visual Toolbar / Quick Actions -->
-    <div class="quick-toolbar">
-      <button class="tool-btn primary" onclick="startWizard()">✨ Nova Mensagem</button>
-      <button class="tool-btn primary" style="background: var(--warning-color); color: #000;" onclick="startBatchWizard()">📦 Lote Anti-Spam WhatsApp</button>
-      <button class="tool-btn" onclick="executeCommand('historico')">📜 Histórico</button>
+    <nav class="quick-toolbar" aria-label="Ações Rápidas">
+      <button class="tool-btn primary" type="button" onclick="startWizard()">✨ Nova Mensagem</button>
+      <button class="tool-btn primary btn-batch-quick" type="button" onclick="startBatchWizard()">📦 Lote WhatsApp</button>
+      <button class="tool-btn" type="button" onclick="executeCommand('historico')">📜 Histórico</button>
       <button class="tool-btn" id="geminiConfigBtn" type="button">⚙️ Configurações</button>
-      <button class="tool-btn danger" onclick="executeCommand('limpar')">🧹 Limpar Terminal</button>
-    </div>
+      <button class="tool-btn danger" type="button" onclick="executeCommand('limpar')">🧹 Limpar</button>
+    </nav>
 
     <!-- Main Output Buffer -->
     <main class="terminal-body" id="terminalOutput" tabindex="0">
@@ -50,14 +56,16 @@
     <!-- Terminal Input Prompt -->
     <footer class="terminal-footer">
       <div class="prompt-line">
-        <span class="prompt-user" id="promptUserDisplay">maxwell@mogilar</span><span class="prompt-sep">:</span><span class="prompt-path">~/apoio-tratamento</span><span class="prompt-symbol">$</span>
-        <input type="text" id="cliInput" placeholder="Digite um comando (ex: 'novo' ou 'ajuda') ou pressione ENTER..." autocomplete="off" spellcheck="false" autofocus>
+        <span class="prompt-prefix">
+          <span class="prompt-user" id="promptUserDisplay">maxwell@mogilar</span><span class="prompt-sep">:</span><span class="prompt-path">~/apoio-tratamento</span><span class="prompt-symbol">$</span>
+        </span>
+        <input type="text" id="cliInput" placeholder="Digite um comando (ex: 'novo' ou 'ajuda')..." autocomplete="off" spellcheck="false">
       </div>
       <div class="status-bar">
         <span class="status-item"><span class="status-dot"></span> Drogaria: <strong>Drogasil Mogilar</strong></span>
         <span class="status-item">👨‍⚕️ Farmacêutico: <strong id="statusUserDisplay">Maxwell</strong></span>
         <span class="status-item" id="historyCounter">📋 Mensagens hoje: 0</span>
-        <span class="status-hint">Pressione <kbd>TAB</kbd> ou <kbd>↑</kbd>/<kbd>↓</kbd> para histórico de comandos</span>
+        <span class="status-hint">Pressione <kbd>TAB</kbd> ou <kbd>↑</kbd>/<kbd>↓</kbd> para histórico</span>
       </div>
     </footer>
   </div>

@@ -287,12 +287,13 @@ document.addEventListener('DOMContentLoaded', () => {
   crtToggleBtn.addEventListener('click', toggleCRT);
   initializeGeminiConfigPanel();
   
-  // Manter foco no terminal ao clicar na tela
+  // Manter foco no terminal ao clicar na tela (apenas no Desktop com mouse para não abrir teclado indesejado no celular)
   document.querySelector('.app-container').addEventListener('click', (e) => {
     const loginPanel = document.getElementById('loginPanel');
     if (loginPanel && !loginPanel.hidden) return;
-    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') {
-      cliInput.focus();
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    if (!isTouchDevice && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') {
+      cliInput?.focus();
     }
   });
 });
@@ -305,11 +306,28 @@ function updateHistoryCounter() {
   }
 }
 
+const THEME_META_COLORS = {
+  matrix: '#0a0d0a',
+  amber: '#0d0a04',
+  cyberpunk: '#090614',
+  dark: '#121417'
+};
+
+function applyTheme(themeName) {
+  if (!THEMES.includes(themeName)) return;
+  currentThemeIndex = THEMES.indexOf(themeName);
+  document.body.className = `theme-${themeName}`;
+  const metaTheme = document.getElementById('metaThemeColor');
+  if (metaTheme && THEME_META_COLORS[themeName]) {
+    metaTheme.setAttribute('content', THEME_META_COLORS[themeName]);
+  }
+}
+
 // Alternar Temas
 function toggleTheme() {
   currentThemeIndex = (currentThemeIndex + 1) % THEMES.length;
   const newTheme = THEMES[currentThemeIndex];
-  document.body.className = `theme-${newTheme}`;
+  applyTheme(newTheme);
   appendLog(`🎨 Tema alterado para: <strong class="log-info">${newTheme.toUpperCase()}</strong>`, 'log-info');
 }
 
@@ -1174,6 +1192,41 @@ function switchToneTab(id, toneKey) {
   });
 }
 
+function copyTextToClipboard(textToCopy, successMsg = '✅ Mensagem copiada com sucesso!') {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      if (successMsg) appendLog(successMsg, 'log-success');
+    }).catch(() => {
+      fallbackCopyText(textToCopy, successMsg);
+    });
+  } else {
+    fallbackCopyText(textToCopy, successMsg);
+  }
+}
+
+function fallbackCopyText(textToCopy, successMsg) {
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = textToCopy;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '0';
+    textArea.setAttribute('readonly', '');
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    if (successful && successMsg) {
+      appendLog(successMsg, 'log-success');
+    } else if (!successful) {
+      appendLog('⚠️ Não foi possível copiar para a área de transferência.', 'log-warning');
+    }
+  } catch (err) {
+    appendLog('⚠️ Erro ao copiar texto.', 'log-error');
+  }
+}
+
 function copyMessageText(id) {
   const cardElem = document.getElementById(`card-${id}`);
   if (!cardElem) return;
@@ -1182,17 +1235,7 @@ function copyMessageText(id) {
   const rawVal = versions[activeTone];
   const textToCopy = (typeof rawVal === 'object' ? rawVal.text : rawVal).replace(/\*\*/g, '').replace(/\*/g, '');
 
-  navigator.clipboard.writeText(textToCopy).then(() => {
-    appendLog(`✅ Mensagem copiada com sucesso para a área de transferência!`, 'log-success');
-  }).catch(() => {
-    const textArea = document.createElement('textarea');
-    textArea.value = textToCopy;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-    appendLog(`✅ Mensagem copiada com sucesso!`, 'log-success');
-  });
+  copyTextToClipboard(textToCopy, '✅ Mensagem copiada com sucesso para a área de transferência!');
 }
 /**
  * Renderiza o Formulário Guiado (Wizard Interativo dentro do Terminal)
@@ -1582,7 +1625,7 @@ function renderBatchOutput(batchList) {
         <div style="white-space: pre-wrap; font-size: 0.88rem; background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-bright); margin-bottom: 8px;">${escapeHTML(item.messageText)}</div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button class="card-btn btn-whatsapp" onclick="window.open('${waUrl}', '_blank')">💬 Enviar WhatsApp (${escapeHTML(item.clientData.telefone || 'Sem número')})</button>
-          <button class="card-btn btn-copy" onclick="navigator.clipboard.writeText('${escapeHTML(item.messageText.replace(/\*\*/g, '').replace(/\*/g, ''))}'); appendLog('✅ Copiado mensagem de ${escapeHTML(item.clientData.nome)}', 'log-success');">📋 Copiar Texto</button>
+          <button class="card-btn btn-copy" onclick="copyTextToClipboard('${escapeHTML(item.messageText.replace(/\*\*/g, '').replace(/\*/g, ''))}', '✅ Copiado mensagem de ${escapeHTML(item.clientData.nome)}');">📋 Copiar Texto</button>
         </div>
       </div>
     `;
