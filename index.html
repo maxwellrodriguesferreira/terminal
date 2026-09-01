@@ -21,7 +21,7 @@
         <span class="control maximize"></span>
       </div>
       <div class="terminal-title">
-        <span class="icon">💊🩺</span> maxwell@drogasil-mogilar: ~/apoio-tratamento
+        <span class="icon">💊🩺</span> <span id="headerTerminalTitle">maxwell@drogasil-mogilar: ~/apoio-tratamento</span>
       </div>
       <div class="terminal-title" id="ai-status" style="font-size: 0.7rem; margin-left: 8px; opacity: 0.6;">
         🔴 IA Inativa
@@ -29,6 +29,7 @@
       <div class="header-actions">
         <button id="themeToggleBtn" title="Trocar Tema Visual (Matrix / Amber / Cyberpunk / Dark)">🎨 Tema</button>
         <button id="crtToggleBtn" class="active" title="Efeito Tubo CRT">📺 Scanlines</button>
+        <button id="logoutBtn" class="tool-btn danger" title="Encerrar Sessão">🔒 Sair</button>
       </div>
     </header>
 
@@ -49,17 +50,94 @@
     <!-- Terminal Input Prompt -->
     <footer class="terminal-footer">
       <div class="prompt-line">
-        <span class="prompt-user">maxwell@mogilar</span><span class="prompt-sep">:</span><span class="prompt-path">~/apoio-tratamento</span><span class="prompt-symbol">$</span>
+        <span class="prompt-user" id="promptUserDisplay">maxwell@mogilar</span><span class="prompt-sep">:</span><span class="prompt-path">~/apoio-tratamento</span><span class="prompt-symbol">$</span>
         <input type="text" id="cliInput" placeholder="Digite um comando (ex: 'novo' ou 'ajuda') ou pressione ENTER..." autocomplete="off" spellcheck="false" autofocus>
       </div>
       <div class="status-bar">
         <span class="status-item"><span class="status-dot"></span> Drogaria: <strong>Drogasil Mogilar</strong></span>
-        <span class="status-item">👨⚕️ Farmacêutico: <strong>Maxwell</strong></span>
+        <span class="status-item">👨‍⚕️ Farmacêutico: <strong id="statusUserDisplay">Maxwell</strong></span>
         <span class="status-item" id="historyCounter">📋 Mensagens hoje: 0</span>
         <span class="status-hint">Pressione <kbd>TAB</kbd> ou <kbd>↑</kbd>/<kbd>↓</kbd> para histórico de comandos</span>
       </div>
     </footer>
   </div>
+
+  <!-- Login Modal / Screen -->
+  <section class="login-panel" id="loginPanel" aria-labelledby="loginTitle">
+    <div class="login-backdrop"></div>
+    <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="login-window-header">
+        <div class="window-controls">
+          <span class="control close"></span>
+          <span class="control minimize"></span>
+          <span class="control maximize"></span>
+        </div>
+        <span class="login-badge">🔒 ACESSO RESTRITO</span>
+        <div class="login-theme-switcher">
+          <button id="loginThemeBtn" type="button" title="Trocar Tema Visual">🎨 Tema</button>
+        </div>
+      </div>
+
+      <div class="login-header">
+        <div class="login-logo-badge">💊🩺</div>
+        <div>
+          <h1 id="loginTitle">Terminal de Apoio Farmacêutico</h1>
+          <p class="login-subtitle">Drogasil Mogilar · Acompanhamento & Serviços Clínicos</p>
+        </div>
+      </div>
+
+      <div class="login-security-notice">
+        <span class="pulse-dot"></span>
+        <span>Autenticação necessária para acessar prontuários e geração de mensagens.</span>
+      </div>
+
+      <form id="loginForm" novalidate autocomplete="on">
+        <div class="login-field-group">
+          <label class="login-label" for="loginUserInput">
+            <span>👤</span> Identificação / Farmacêutico
+          </label>
+          <div class="login-input-wrapper">
+            <input id="loginUserInput" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="ex.: maxwell" required autofocus>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="loginPassInput">
+            <span>🔑</span> Senha de Acesso
+          </label>
+          <div class="login-input-wrapper password-wrapper">
+            <input id="loginPassInput" type="password" autocomplete="current-password" placeholder="Digite sua senha..." required>
+            <button id="loginPassToggle" type="button" aria-label="Mostrar ou ocultar senha" title="Mostrar/Ocultar senha">👁️</button>
+          </div>
+        </div>
+
+        <div class="login-options-row">
+          <label class="login-checkbox-label">
+            <input id="loginRemember" type="checkbox" checked>
+            <span class="custom-checkbox"></span>
+            <span>Lembrar sessão neste navegador</span>
+          </label>
+        </div>
+
+        <div class="login-feedback" id="loginFeedback" role="alert" aria-live="polite"></div>
+
+        <div class="login-actions">
+          <button class="tool-btn primary login-btn" type="submit" id="loginSubmitBtn">
+            ⚡ Acessar Terminal
+          </button>
+          <button class="tool-btn login-demo-btn" type="button" id="loginDemoBtn">
+            🧪 Preencher Demo
+          </button>
+        </div>
+      </form>
+
+      <div class="login-footer-info">
+        <div class="login-credentials-tip">
+          <strong>💡 Dica de Teste Local:</strong> Usuário: <code>maxwell</code> &bull; Senha: <code>drogasil</code>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <section class="gemini-config-panel" id="geminiConfigPanel" aria-labelledby="geminiConfigTitle" hidden>
     <div class="gemini-config-backdrop" data-gemini-close></div>
@@ -91,6 +169,11 @@
       </form>
     </div>
   </section>
+
+  <!-- Firebase App & Authentication SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js?v=20260901-v1"></script>
 
   <script src="app.js?v=20260830-gemini-3-6-flash-v1"></script>
 </body>

@@ -19,7 +19,18 @@ const requirements = [
   ['parser defensivo do JSON da IA', app.includes('function sanitizeGeminiJsonResponse')],
   ['força JSON da API Gemini', app.includes("responseMimeType: 'application/json'")],
   ['schema estruturado do Gemini', app.includes('GEMINI_RESPONSE_SCHEMA')],
-  ['bloqueio temporário da IA', app.includes('isGeminiTemporarilyBlocked()')]
+  ['bloqueio temporário da IA', app.includes('isGeminiTemporarilyBlocked()')],
+  ['painel de login no HTML', html.includes('id="loginPanel"')],
+  ['formulário de login no HTML', html.includes('id="loginForm"')],
+  ['campo de usuário no HTML', html.includes('id="loginUserInput"')],
+  ['campo de senha no HTML', html.includes('id="loginPassInput"')],
+  ['botão de sair no HTML', html.includes('id="logoutBtn"')],
+  ['estilos da tela de login', css.includes('.login-panel') && css.includes('.login-card')],
+  ['função de inicialização de autenticação', app.includes('function initializeAuth()')],
+  ['função de validação de login', app.includes('function handleLoginSubmit(')],
+  ['função de encerramento de sessão', app.includes('function logoutUser()')],
+  ['script firebase-config no HTML', html.includes('firebase-config.js')],
+  ['script firebase auth no HTML', html.includes('firebase-auth-compat.js')]
 ];
 
 const failed = requirements.filter(([, passed]) => !passed).map(([name]) => name);

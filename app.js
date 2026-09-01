@@ -25,12 +25,319 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 const crtToggleBtn = document.getElementById('crtToggleBtn');
 const historyCounter = document.getElementById('historyCounter');
 
+/* ==========================================================================
+   SISTEMA DE AUTENTICAÇÃO E SESSÃO DO TERMINAL
+   ========================================================================== */
+
+const DEFAULT_AUTH = {
+  user: 'maxwell',
+  pass: 'drogasil',
+  name: 'Maxwell'
+};
+
+function getAuthSession() {
+  const sessionStr = sessionStorage.getItem('apoio_auth_session') || localStorage.getItem('apoio_auth_session');
+  if (!sessionStr) return null;
+  try {
+    return JSON.parse(sessionStr);
+  } catch (e) {
+    return null;
+  }
+}
+
+function setAuthSession(userData, remember) {
+  const dataStr = JSON.stringify(userData);
+  if (remember) {
+    localStorage.setItem('apoio_auth_session', dataStr);
+  } else {
+    sessionStorage.setItem('apoio_auth_session', dataStr);
+  }
+}
+
+function clearAuthSession() {
+  sessionStorage.removeItem('apoio_auth_session');
+  localStorage.removeItem('apoio_auth_session');
+}
+
+function updateAuthStateUI(session) {
+  const loginPanel = document.getElementById('loginPanel');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const promptUserDisplay = document.getElementById('promptUserDisplay');
+  const statusUserDisplay = document.getElementById('statusUserDisplay');
+  const headerTerminalTitle = document.getElementById('headerTerminalTitle');
+
+  if (session && session.user) {
+    if (loginPanel) loginPanel.hidden = true;
+    if (logoutBtn) logoutBtn.style.display = 'inline-block';
+
+    const userSlug = (session.user || 'maxwell').toLowerCase().replace(/\s+/g, '');
+    const userName = session.name || session.user || 'Maxwell';
+
+    DEFAULT_CONFIG.farmaceutico = userName;
+    if (promptUserDisplay) promptUserDisplay.textContent = `${userSlug}@mogilar`;
+    if (statusUserDisplay) statusUserDisplay.textContent = userName;
+    if (headerTerminalTitle) headerTerminalTitle.textContent = `${userSlug}@drogasil-mogilar: ~/apoio-tratamento`;
+
+    setTimeout(() => cliInput?.focus(), 50);
+  } else {
+    if (loginPanel) {
+      loginPanel.hidden = false;
+      const userInput = document.getElementById('loginUserInput');
+      setTimeout(() => userInput?.focus(), 50);
+    }
+    if (logoutBtn) logoutBtn.style.display = 'none';
+  }
+}
+
+function showLoginFeedback(message, typeClass) {
+  const feedback = document.getElementById('loginFeedback');
+  if (!feedback) return;
+  feedback.className = `login-feedback ${typeClass || ''}`;
+  feedback.textContent = message;
+}
+
+function triggerCardShake(cardEl) {
+  if (!cardEl) return;
+  cardEl.classList.remove('shake');
+  void cardEl.offsetWidth; // trigger reflow
+  cardEl.classList.add('shake');
+  setTimeout(() => cardEl.classList.remove('shake'), 600);
+}
+
+function fillDemoCredentials() {
+  const userInput = document.getElementById('loginUserInput');
+  const passInput = document.getElementById('loginPassInput');
+  if (userInput) userInput.value = DEFAULT_AUTH.user;
+  if (passInput) passInput.value = DEFAULT_AUTH.pass;
+  showLoginFeedback('💡 Credenciais demo preenchidas! Clique em Acessar.', 'is-success');
+}
+
+function toggleLoginPassVisibility() {
+  const passInput = document.getElementById('loginPassInput');
+  const toggleBtn = document.getElementById('loginPassToggle');
+  if (!passInput) return;
+  const isPass = passInput.type === 'password';
+  passInput.type = isPass ? 'text' : 'password';
+  if (toggleBtn) {
+    toggleBtn.textContent = isPass ? '🙈' : '👁️';
+    toggleBtn.setAttribute('aria-pressed', isPass ? 'true' : 'false');
+  }
+}
+
+async function handleLoginSubmit(e) {
+  if (e) e.preventDefault();
+  const userInput = document.getElementById('loginUserInput');
+  const passInput = document.getElementById('loginPassInput');
+  const rememberCheckbox = document.getElementById('loginRemember');
+  const loginCard = document.querySelector('.login-card');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+
+  let rawUser = userInput?.value.trim();
+  const rawPass = passInput?.value;
+
+  if (!rawUser || !rawPass) {
+    showLoginFeedback('⚠️ Por favor, preencha o usuário/e-mail e a senha.', 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  const isFbActive = typeof isFirebaseConfigured === 'function' && isFirebaseConfigured();
+
+  // Integração com Firebase Authentication se configurado
+  if (isFbActive) {
+    if (submitBtn) submitBtn.disabled = true;
+    showLoginFeedback('🔄 Autenticando com Firebase...', 'is-warning');
+
+    // Normaliza para formato de e-mail se fornecido apenas nome de usuário
+    const emailLogin = rawUser.includes('@') ? rawUser : `${rawUser}@drogasil.com.br`;
+
+    try {
+      const remember = rememberCheckbox ? rememberCheckbox.checked : true;
+      const userCredential = await firebaseLogin(emailLogin, rawPass, remember);
+      const user = userCredential.user;
+      const displayName = user.displayName || user.email.split('@')[0];
+      const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
+      const session = {
+        user: user.email,
+        name: formattedName,
+        uid: user.uid,
+        authType: 'firebase',
+        loginTime: new Date().toISOString()
+      };
+
+      setAuthSession(session, remember);
+      updateAuthStateUI(session);
+      appendLog(`🟢 <strong>Autenticado via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(formattedName)}</strong>.`, 'log-success');
+      showLoginFeedback('', '');
+      if (passInput) passInput.value = '';
+    } catch (error) {
+      console.error('Erro de autenticação Firebase:', error);
+      let errorMsg = '❌ Falha ao autenticar no Firebase.';
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        errorMsg = '❌ E-mail/usuário ou senha incorretos.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMsg = '⚠️ Muitas tentativas. Bloqueado temporariamente.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMsg = '⚠️ Erro de rede ao contatar os servidores do Firebase.';
+      }
+      showLoginFeedback(errorMsg, 'is-error');
+      triggerCardShake(loginCard);
+      if (passInput) {
+        passInput.value = '';
+        passInput.focus();
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
+  // Fallback para Autenticação Local / Demo caso Firebase não esteja configurado
+  const customUsers = JSON.parse(localStorage.getItem('apoio_auth_custom_users') || '{}');
+  const userLower = rawUser.toLowerCase();
+
+  let isValid = false;
+  let displayName = rawUser;
+
+  if (userLower === DEFAULT_AUTH.user && rawPass === DEFAULT_AUTH.pass) {
+    isValid = true;
+    displayName = DEFAULT_AUTH.name;
+  } else if (customUsers[userLower] && customUsers[userLower].pass === rawPass) {
+    isValid = true;
+    displayName = customUsers[userLower].name || rawUser;
+  } else if (userLower === 'admin' && (rawPass === 'admin' || rawPass === 'admin123' || rawPass === 'drogasil')) {
+    isValid = true;
+    displayName = 'Administrador';
+  }
+
+  if (isValid) {
+    showLoginFeedback('✅ Autenticado com sucesso! Carregando terminal...', 'is-success');
+    setTimeout(() => {
+      const session = {
+        user: rawUser,
+        name: displayName,
+        authType: 'local',
+        loginTime: new Date().toISOString()
+      };
+      setAuthSession(session, rememberCheckbox ? rememberCheckbox.checked : true);
+      updateAuthStateUI(session);
+      appendLog(`🟢 <strong>Sessão iniciada com sucesso (Local).</strong> Farmacêutico responsável: <strong>${escapeHTML(displayName)}</strong>.`, 'log-success');
+      showLoginFeedback('', '');
+      if (passInput) passInput.value = '';
+    }, 350);
+  } else {
+    showLoginFeedback('❌ Usuário ou senha incorretos. Verifique a dica abaixo.', 'is-error');
+    triggerCardShake(loginCard);
+    if (passInput) {
+      passInput.value = '';
+      passInput.focus();
+    }
+  }
+}
+
+async function logoutUser() {
+  const session = getAuthSession();
+  const name = session ? (session.name || session.user) : 'Usuário';
+
+  if (typeof firebaseLogout === 'function') {
+    try {
+      await firebaseLogout();
+    } catch (e) {
+      console.warn('Erro ao deslogar do Firebase:', e);
+    }
+  }
+
+  clearAuthSession();
+  updateAuthStateUI(null);
+  appendLog(`🔒 <strong>Sessão encerrada</strong> para: ${escapeHTML(name)}.`, 'log-warning');
+  showLoginFeedback('🔒 Sessão encerrada com sucesso.', '');
+}
+
+function showCurrentUser() {
+  const session = getAuthSession();
+  if (session) {
+    const provider = session.authType === 'firebase' ? '🔥 Firebase' : '💾 Local';
+    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)}) [${provider}] | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
+  } else {
+    appendLog(`⚠️ Nenhuma sessão ativa no momento.`, 'log-warning');
+  }
+}
+
+function handlePasswordChange(newPass) {
+  const session = getAuthSession();
+  if (!session) {
+    appendLog(`⚠️ Você precisa estar conectado para alterar a senha.`, 'log-error');
+    return;
+  }
+  if (!newPass || newPass.trim().length < 4) {
+    appendLog(`⚠️ Uso: <code class="log-info">senha [nova_senha]</code> (mínimo de 4 caracteres).`, 'log-warning');
+    return;
+  }
+
+  const customUsers = JSON.parse(localStorage.getItem('apoio_auth_custom_users') || '{}');
+  const userKey = session.user.toLowerCase();
+  customUsers[userKey] = {
+    pass: newPass.trim(),
+    name: session.name || session.user
+  };
+  localStorage.setItem('apoio_auth_custom_users', JSON.stringify(customUsers));
+  appendLog(`🔑 <strong>Senha atualizada com sucesso para o usuário ${escapeHTML(session.user)}!</strong>`, 'log-success');
+}
+
+function initializeAuth() {
+  const loginForm = document.getElementById('loginForm');
+  const loginPassToggle = document.getElementById('loginPassToggle');
+  const loginDemoBtn = document.getElementById('loginDemoBtn');
+  const loginThemeBtn = document.getElementById('loginThemeBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  if (loginForm) loginForm.addEventListener('submit', handleLoginSubmit);
+  if (loginPassToggle) loginPassToggle.addEventListener('click', toggleLoginPassVisibility);
+  if (loginDemoBtn) loginDemoBtn.addEventListener('click', fillDemoCredentials);
+  if (loginThemeBtn) loginThemeBtn.addEventListener('click', toggleTheme);
+  if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
+
+  // Inicializa o Firebase se configurado
+  if (typeof initFirebase === 'function') {
+    const auth = initFirebase();
+    if (auth && typeof auth.onAuthStateChanged === 'function') {
+      auth.onAuthStateChanged((user) => {
+        if (user) {
+          const displayName = user.displayName || user.email.split('@')[0];
+          const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+          const session = {
+            user: user.email,
+            name: formattedName,
+            uid: user.uid,
+            authType: 'firebase',
+            loginTime: new Date().toISOString()
+          };
+          updateAuthStateUI(session);
+        } else {
+          // Se deslogou no Firebase, checa se havia sessão local
+          const localSession = getAuthSession();
+          if (!localSession || localSession.authType === 'firebase') {
+            clearAuthSession();
+            updateAuthStateUI(null);
+          }
+        }
+      });
+      return;
+    }
+  }
+
+  // Se o Firebase não estiver ativo, carrega a sessão local existente
+  const session = getAuthSession();
+  updateAuthStateUI(session);
+}
+
 // Inicialização
 document.addEventListener('DOMContentLoaded', () => {
   renderWelcomeBanner();
   updateHistoryCounter();
   updateAIStatus();
-  cliInput.focus();
+  initializeAuth();
 
   // Event Listeners
   cliInput.addEventListener('keydown', handleInputKeydown);
@@ -41,6 +348,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Manter foco no terminal ao clicar na tela
   document.querySelector('.app-container').addEventListener('click', (e) => {
+    const loginPanel = document.getElementById('loginPanel');
+    if (loginPanel && !loginPanel.hidden) return;
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') {
       cliInput.focus();
     }
@@ -1522,6 +1831,25 @@ async function executeCommand(inputCmd) {
       }
       break;
 
+    case 'sair':
+    case 'logout':
+    case 'desconectar':
+    case 'exit':
+      logoutUser();
+      break;
+
+    case 'usuario':
+    case 'whoami':
+    case 'quemami':
+    case 'perfil':
+      showCurrentUser();
+      break;
+
+    case 'senha':
+    case 'passwd':
+      handlePasswordChange(parts[1]);
+      break;
+
     default:
       appendLog(`❌ Comando não reconhecido: "<strong>${escapeHTML(inputCmd)}</strong>". Digite <code class="log-info">ajuda</code> ou <code class="log-info">novo</code>.`, 'log-error');
       break;
@@ -1671,6 +1999,21 @@ function showHelp() {
             <td><code>limpar</code> / <code>clear</code></td>
             <td>Limpa todas as saídas da tela do terminal.</td>
             <td><code>limpar</code></td>
+          </tr>
+          <tr>
+            <td><code>usuario</code> / <code>whoami</code></td>
+            <td>Exibe o usuário atualmente autenticado na sessão.</td>
+            <td><code>usuario</code></td>
+          </tr>
+          <tr>
+            <td><code>senha [nova_senha]</code></td>
+            <td>Altera a senha de acesso do usuário local.</td>
+            <td><code>senha 123456</code></td>
+          </tr>
+          <tr>
+            <td><code>sair</code> / <code>logout</code></td>
+            <td>Encerra a sessão e bloqueia o terminal.</td>
+            <td><code>sair</code></td>
           </tr>
         </tbody>
       </table>

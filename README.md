@@ -1,14 +1,16 @@
 # 💊🩺 Terminal de Apoio ao Tratamento
 
-**Drogasil Mogilar · Farmacêutico responsável: Maxwell**
+**Projeto Pessoal e Independente · Desenvolvido por Maxwell**
 
-Aplicação web estática com interface de terminal/CRT para criar mensagens de acompanhamento farmacêutico em português do Brasil. Gera textos para medicamentos e serviços, mantém histórico local e oferece integração opcional com o Google Gemini.
+Aplicação web estática com interface de terminal/CRT para auxiliar na redação de mensagens humanizadas de acompanhamento farmacêutico em português do Brasil. Gera textos para medicamentos e serviços, mantém histórico local e oferece integração opcional com o Google Gemini e Firebase Authentication.
 
 - **Produção:** [terminal-apoio.web.app](https://terminal-apoio.web.app)
 - **Projeto Firebase:** `terminal-apoio`
 - **Modelo de IA:** Google **Gemini 3.6 Flash**
 
-> A ferramenta auxilia a redação de mensagens. A revisão e a orientação farmacêutica final continuam sob responsabilidade do profissional habilitado.
+> [!IMPORTANT]
+> **Aviso Legal / Isenção de Responsabilidade:**
+> Esta é uma ferramenta **pessoal, independente e de estudo/apoio profissional**. **NÃO foi desenvolvida por, para ou a pedido da empresa RaiaDrogasil (Drogasil)**, não constituindo produto, canal ou sistema oficial da referida empresa. A revisão, validação técnica e orientação farmacêutica final permanecem sob exclusiva responsabilidade do profissional habilitado.
 
 ---
 
@@ -77,6 +79,9 @@ Esses dados **não são enviados ao Firebase**. Não compartilhe a API key em ch
 | `servicos` | Exibe serviços reconhecidos. | `servicos` |
 | `tema [matrix\|amber\|cyberpunk\|dark]` | Define ou alterna o tema. | `tema cyberpunk` |
 | `limpar`, `clear`, `cls` | Limpa a saída do terminal. | `limpar` |
+| `usuario`, `whoami` | Exibe o usuário ativo da sessão. | `usuario` |
+| `senha [nova_senha]` | Altera a senha de acesso local. | `senha 123456` |
+| `sair`, `logout` | Encerra a sessão e bloqueia o terminal. | `sair` |
 | `ajuda`, `help`, `?`, `menu` | Exibe a ajuda. | `ajuda` |
 
 ---
@@ -93,6 +98,7 @@ Esses dados **não são enviados ao Firebase**. Não compartilhe a API key em ch
 | `index.html` | Terminal, ações rápidas e painel Gemini. |
 | `style.css` | Temas, layout CRT e modal de configurações. |
 | `app.js` | CLI, geração local/IA, lote, histórico e Gemini. |
+| `firebase-config.js` | Configuração central e inicialização do Firebase Authentication. |
 | `test.js` | Verificações estruturais do painel e modelo. |
 | `firebase.json` | Hosting e cache de uma hora. |
 
