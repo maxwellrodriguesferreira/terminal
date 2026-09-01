@@ -132,107 +132,68 @@ async function handleLoginSubmit(e) {
   const loginCard = document.querySelector('.login-card');
   const submitBtn = document.getElementById('loginSubmitBtn');
 
-  let rawUser = userInput?.value.trim();
+  const rawUser = userInput?.value.trim();
   const rawPass = passInput?.value;
 
   if (!rawUser || !rawPass) {
-    showLoginFeedback('⚠️ Por favor, preencha o usuário/e-mail e a senha.', 'is-error');
+    showLoginFeedback('⚠️ Por favor, preencha o e-mail e a senha.', 'is-error');
     triggerCardShake(loginCard);
     return;
   }
 
-  const isFbActive = typeof isFirebaseConfigured === 'function' && isFirebaseConfigured();
-
-  // Integração com Firebase Authentication se configurado
-  if (isFbActive) {
-    if (submitBtn) submitBtn.disabled = true;
-    showLoginFeedback('🔄 Autenticando com Firebase...', 'is-warning');
-
-    // Normaliza para formato de e-mail se fornecido apenas nome de usuário
-    const emailLogin = rawUser.includes('@') ? rawUser : `${rawUser}@drogasil.com.br`;
-
-    try {
-      const remember = rememberCheckbox ? rememberCheckbox.checked : true;
-      const userCredential = await firebaseLogin(emailLogin, rawPass, remember);
-      const user = userCredential.user;
-      const displayName = user.displayName || user.email.split('@')[0];
-      const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
-
-      const session = {
-        user: user.email,
-        name: formattedName,
-        uid: user.uid,
-        authType: 'firebase',
-        loginTime: new Date().toISOString()
-      };
-
-      setAuthSession(session, remember);
-      updateAuthStateUI(session);
-      appendLog(`🟢 <strong>Autenticado via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(formattedName)}</strong>.`, 'log-success');
-      showLoginFeedback('', '');
-      if (passInput) passInput.value = '';
-    } catch (error) {
-      console.error('Erro de autenticação Firebase:', error);
-      let errorMsg = '❌ Falha ao autenticar no Firebase.';
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        errorMsg = '❌ E-mail/usuário ou senha incorretos.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMsg = '⚠️ Muitas tentativas. Bloqueado temporariamente.';
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMsg = '⚠️ Erro de rede ao contatar os servidores do Firebase.';
-      }
-      showLoginFeedback(errorMsg, 'is-error');
-      triggerCardShake(loginCard);
-      if (passInput) {
-        passInput.value = '';
-        passInput.focus();
-      }
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
+  if (!rawUser.includes('@') || !rawUser.includes('.')) {
+    showLoginFeedback('⚠️ Digite um endereço de e-mail válido.', 'is-error');
+    triggerCardShake(loginCard);
     return;
   }
 
-  // Fallback para Autenticação Local / Demo caso Firebase não esteja configurado
-  const customUsers = JSON.parse(localStorage.getItem('apoio_auth_custom_users') || '{}');
-  const userLower = rawUser.toLowerCase();
+  if (submitBtn) submitBtn.disabled = true;
+  showLoginFeedback('🔄 Autenticando com Firebase...', 'is-warning');
 
-  let isValid = false;
-  let displayName = rawUser;
+  try {
+    const remember = rememberCheckbox ? rememberCheckbox.checked : true;
+    const userCredential = await firebaseLogin(rawUser, rawPass, remember);
+    const user = userCredential.user;
+    const displayName = user.displayName || user.email.split('@')[0];
+    const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
-  if (userLower === DEFAULT_AUTH.user && rawPass === DEFAULT_AUTH.pass) {
-    isValid = true;
-    displayName = DEFAULT_AUTH.name;
-  } else if (customUsers[userLower] && customUsers[userLower].pass === rawPass) {
-    isValid = true;
-    displayName = customUsers[userLower].name || rawUser;
-  } else if (userLower === 'admin' && (rawPass === 'admin' || rawPass === 'admin123' || rawPass === 'drogasil')) {
-    isValid = true;
-    displayName = 'Administrador';
-  }
+    const session = {
+      user: user.email,
+      name: formattedName,
+      uid: user.uid,
+      authType: 'firebase',
+      loginTime: new Date().toISOString()
+    };
 
-  if (isValid) {
-    showLoginFeedback('✅ Autenticado com sucesso! Carregando terminal...', 'is-success');
-    setTimeout(() => {
-      const session = {
-        user: rawUser,
-        name: displayName,
-        authType: 'local',
-        loginTime: new Date().toISOString()
-      };
-      setAuthSession(session, rememberCheckbox ? rememberCheckbox.checked : true);
-      updateAuthStateUI(session);
-      appendLog(`🟢 <strong>Sessão iniciada com sucesso (Local).</strong> Farmacêutico responsável: <strong>${escapeHTML(displayName)}</strong>.`, 'log-success');
-      showLoginFeedback('', '');
-      if (passInput) passInput.value = '';
-    }, 350);
-  } else {
-    showLoginFeedback('❌ Usuário ou senha incorretos. Verifique a dica abaixo.', 'is-error');
+    setAuthSession(session, remember);
+    updateAuthStateUI(session);
+    appendLog(`🟢 <strong>Autenticado via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(formattedName)}</strong> (${escapeHTML(user.email)}).`, 'log-success');
+    showLoginFeedback('', '');
+    if (passInput) passInput.value = '';
+  } catch (error) {
+    console.error('Erro de autenticação Firebase:', error);
+    let errorMsg = '❌ Falha ao autenticar.';
+    if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+      errorMsg = '❌ E-mail ou senha incorretos no Firebase.';
+    } else if (error.code === 'auth/invalid-email') {
+      errorMsg = '❌ O formato do e-mail é inválido.';
+    } else if (error.code === 'auth/user-disabled') {
+      errorMsg = '⚠️ Este usuário foi desativado no Firebase.';
+    } else if (error.code === 'auth/too-many-requests') {
+      errorMsg = '⚠️ Acesso bloqueado temporariamente por excesso de tentativas.';
+    } else if (error.code === 'auth/network-request-failed') {
+      errorMsg = '⚠️ Erro de conexão com os servidores do Firebase.';
+    } else if (error.message) {
+      errorMsg = `❌ ${error.message}`;
+    }
+    showLoginFeedback(errorMsg, 'is-error');
     triggerCardShake(loginCard);
     if (passInput) {
       passInput.value = '';
       passInput.focus();
     }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -257,8 +218,7 @@ async function logoutUser() {
 function showCurrentUser() {
   const session = getAuthSession();
   if (session) {
-    const provider = session.authType === 'firebase' ? '🔥 Firebase' : '💾 Local';
-    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)}) [${provider}] | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
+    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)}) [🔥 Firebase] | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
   } else {
     appendLog(`⚠️ Nenhuma sessão ativa no momento.`, 'log-warning');
   }
@@ -270,31 +230,17 @@ function handlePasswordChange(newPass) {
     appendLog(`⚠️ Você precisa estar conectado para alterar a senha.`, 'log-error');
     return;
   }
-  if (!newPass || newPass.trim().length < 4) {
-    appendLog(`⚠️ Uso: <code class="log-info">senha [nova_senha]</code> (mínimo de 4 caracteres).`, 'log-warning');
-    return;
-  }
-
-  const customUsers = JSON.parse(localStorage.getItem('apoio_auth_custom_users') || '{}');
-  const userKey = session.user.toLowerCase();
-  customUsers[userKey] = {
-    pass: newPass.trim(),
-    name: session.name || session.user
-  };
-  localStorage.setItem('apoio_auth_custom_users', JSON.stringify(customUsers));
-  appendLog(`🔑 <strong>Senha atualizada com sucesso para o usuário ${escapeHTML(session.user)}!</strong>`, 'log-success');
+  appendLog(`ℹ️ Para alterar a senha da sua conta Firebase, redefina-a através do console do Firebase ou do fluxo de recuperação de senha por e-mail.`, 'log-info');
 }
 
 function initializeAuth() {
   const loginForm = document.getElementById('loginForm');
   const loginPassToggle = document.getElementById('loginPassToggle');
-  const loginDemoBtn = document.getElementById('loginDemoBtn');
   const loginThemeBtn = document.getElementById('loginThemeBtn');
   const logoutBtn = document.getElementById('logoutBtn');
 
   if (loginForm) loginForm.addEventListener('submit', handleLoginSubmit);
   if (loginPassToggle) loginPassToggle.addEventListener('click', toggleLoginPassVisibility);
-  if (loginDemoBtn) loginDemoBtn.addEventListener('click', fillDemoCredentials);
   if (loginThemeBtn) loginThemeBtn.addEventListener('click', toggleTheme);
   if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
 
@@ -315,19 +261,14 @@ function initializeAuth() {
           };
           updateAuthStateUI(session);
         } else {
-          // Se deslogou no Firebase, checa se havia sessão local
-          const localSession = getAuthSession();
-          if (!localSession || localSession.authType === 'firebase') {
-            clearAuthSession();
-            updateAuthStateUI(null);
-          }
+          clearAuthSession();
+          updateAuthStateUI(null);
         }
       });
       return;
     }
   }
 
-  // Se o Firebase não estiver ativo, carrega a sessão local existente
   const session = getAuthSession();
   updateAuthStateUI(session);
 }

@@ -935,51 +935,22 @@ body {
 }
 
 .login-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
 .login-btn {
-  padding: 11px 16px;
+  width: 100%;
+  padding: 12px 16px;
   font-size: 0.95rem;
   font-weight: 700;
   text-align: center;
   justify-content: center;
 }
 
-.login-demo-btn {
-  padding: 11px 14px;
-  font-size: 0.85rem;
-  background: var(--bg-card);
-  border-color: var(--border-color);
-}
-
-.login-footer-info {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border-color);
-  font-size: 0.78rem;
-  color: var(--text-dim);
-}
-
-.login-credentials-tip {
-  background: var(--bg-card);
-  padding: 8px 10px;
-  border-radius: 5px;
-  border: 1px solid var(--border-color);
-}
-
-.login-credentials-tip code {
-  color: var(--prompt-color);
-  font-weight: bold;
-}
-
 @media (max-width: 520px) {
   .login-card {
     padding: 18px;
-  }
-  .login-actions {
-    grid-template-columns: 1fr;
   }
 }

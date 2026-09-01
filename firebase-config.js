@@ -9,7 +9,13 @@
  */
 
 const FIREBASE_CONFIG = {
-
+  apiKey: "AIzaSyAATwd7_r256J_4TWAFwMw_CZ9AmvZOv6g",
+  authDomain: "terminal-apoio.firebaseapp.com",
+  projectId: "terminal-apoio",
+  storageBucket: "terminal-apoio.firebasestorage.app",
+  messagingSenderId: "917231555845",
+  appId: "1:917231555845:web:55676648363c3f3972136c",
+  measurementId: "G-G54SWDLYRC"
 };
 
 // Permite carregar configuração salva localmente (caso configurada dinamicamente)
