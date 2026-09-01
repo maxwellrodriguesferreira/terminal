@@ -1730,21 +1730,36 @@ async function executeCommand(inputCmd) {
       break;
 
     case 'historico':
-      if (parts[1] === 'limpar' || parts[1] === 'clear') {
+      if (parts[1] === 'limpar' || parts[1] === 'clear' || parts[1] === 'zerar') {
         generatedMessagesHistory = [];
         localStorage.removeItem('apoio_tratamento_history');
         updateHistoryCounter();
-        appendLog(`🗑️ Histórico de mensagens foi limpo com sucesso.`, 'log-warning');
+        appendLog(`🗑️ <strong>Histórico de mensagens foi limpo com sucesso!</strong> Contador zerado.`, 'log-warning');
       } else {
         showHistory();
       }
       break;
 
+    case 'zerar':
+    case 'reset':
+      generatedMessagesHistory = [];
+      localStorage.removeItem('apoio_tratamento_history');
+      updateHistoryCounter();
+      appendLog(`🗑️ <strong>Histórico de mensagens foi zerado com sucesso!</strong> Contador reiniciado para 0.`, 'log-warning');
+      break;
+
     case 'limpar':
     case 'clear':
     case 'cls':
-      terminalOutput.innerHTML = '';
-      renderWelcomeBanner();
+      if (parts[1] === 'historico' || parts[1] === 'histórico' || parts[1] === 'tudo' || parts[1] === 'mensagens' || parts[1] === 'zerar') {
+        generatedMessagesHistory = [];
+        localStorage.removeItem('apoio_tratamento_history');
+        updateHistoryCounter();
+        appendLog(`🗑️ <strong>Histórico de mensagens foi zerado com sucesso!</strong> Contador reiniciado para 0.`, 'log-warning');
+      } else {
+        terminalOutput.innerHTML = '';
+        renderWelcomeBanner();
+      }
       break;
 
     case 'ajuda':
@@ -1938,8 +1953,13 @@ function showHelp() {
           </tr>
           <tr>
             <td><code>limpar</code> / <code>clear</code></td>
-            <td>Limpa todas as saídas da tela do terminal.</td>
+            <td>Limpa a tela do terminal (use <code>limpar historico</code> para zerar tudo).</td>
             <td><code>limpar</code></td>
+          </tr>
+          <tr>
+            <td><code>zerar</code> / <code>historico limpar</code></td>
+            <td>Apaga as mensagens salvas e zera o contador para 0.</td>
+            <td><code>zerar</code></td>
           </tr>
           <tr>
             <td><code>usuario</code> / <code>whoami</code></td>
