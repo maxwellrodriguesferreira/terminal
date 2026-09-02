@@ -89,10 +89,26 @@ function findUserRecord(emailOrUidOrName) {
   ) || null;
 }
 
+function getSuperAdminUser() {
+  const users = getRegisteredUsers();
+  if (!users.length) return null;
+  // O primeiro usuário cadastrado (ou com role superadmin) é sempre o Super Usuário Mestre
+  return users.find(u => u.role === 'superadmin') || users[0];
+}
+
 function isSuperUser(emailOrUid) {
   if (!emailOrUid) return false;
   const term = String(emailOrUid).trim().toLowerCase();
   if (SUPER_ADMIN_EMAILS.includes(term)) return true;
+
+  const superUser = getSuperAdminUser();
+  if (superUser) {
+    if ((superUser.email && superUser.email.toLowerCase() === term) ||
+        (superUser.uid && superUser.uid === term)) {
+      return true;
+    }
+  }
+
   const record = findUserRecord(term);
   return Boolean(record && record.role === 'superadmin');
 }
@@ -567,7 +583,19 @@ async function handleLoginSubmit(e) {
   } catch (error) {
     console.error('Erro de autenticação:', error);
     let errorMsg = '❌ Falha ao autenticar.';
-    if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+    if (error.code === 'auth/user-not-found') {
+      errorMsg = '❌ Usuário não encontrado no Firebase. A conta foi excluída na nuvem.';
+      // Remove automaticamente da listagem local se não for o Super Usuário mestre
+      if (!isSuperUser(userEmail)) {
+        const allUsers = getRegisteredUsers();
+        const filtered = allUsers.filter(u => u.email !== userEmail && u.uid !== userEmail);
+        if (filtered.length !== allUsers.length) {
+          saveRegisteredUsers(filtered);
+          renderAdminUsersTable();
+          updateSuperUserToolbar();
+        }
+      }
+    } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
       errorMsg = '❌ E-mail ou senha incorretos.';
     } else if (error.code === 'auth/invalid-email') {
       errorMsg = '❌ O formato do e-mail é inválido.';
@@ -688,12 +716,16 @@ function renderAdminUsersTable() {
       <tbody>
   `;
 
-  users.forEach(u => {
-    const isRootAdmin = isSuperUser(u.email);
+  const superUser = getSuperAdminUser();
+  users.forEach((u, index) => {
+    // O primeiro usuário cadastrado é sempre o Super Usuário Mestre (inalterável)
+    const isRootAdmin = (superUser && (u.email === superUser.email || u.uid === superUser.uid)) || (index === 0 && u.role === 'superadmin');
     const dateFormatted = u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '—';
     
     let statusBadge = '';
-    if (u.status === 'pendente') {
+    if (isRootAdmin) {
+      statusBadge = `<span class="status-badge approved" style="border-color: #ffd700; color: #ffd700;">👑 Super Usuário</span>`;
+    } else if (u.status === 'pendente') {
       statusBadge = `<span class="status-badge pending">⏳ Pendente</span>`;
     } else if (u.status === 'rejeitado') {
       statusBadge = `<span class="status-badge rejected">❌ Recusado</span>`;
@@ -703,13 +735,14 @@ function renderAdminUsersTable() {
 
     let actionsHTML = '';
     if (isRootAdmin) {
-      actionsHTML = `<span class="log-dim" style="font-size: 0.76rem;">👑 Super Usuário Mestre</span>`;
+      actionsHTML = `<span class="log-dim" style="font-size: 0.78rem; font-weight: 600; color: #00ff41;">👑 Super Usuário (Mestre)</span>`;
     } else {
+      // OS DEMAIS USUÁRIOS PODEM SER EDITADOS, APROVADOS OU EXCLUÍDOS
       const emailEsc = escapeHTML(u.email);
       let statusSpecificBtns = '';
       if (u.status === 'pendente') {
         statusSpecificBtns = `
-          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar cadastro">✅ Aprovar</button>
+          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar cadastro deste farmacêutico">✅ Aprovar</button>
           <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Recusar cadastro">❌ Recusar</button>
         `;
       } else if (u.status === 'aprovado') {
@@ -724,8 +757,8 @@ function renderAdminUsersTable() {
 
       actionsHTML = `
         ${statusSpecificBtns}
-        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
-        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir usuário comum permanentemente">🗑️ Excluir</button>
+        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria deste farmacêutico">✏️ Editar</button>
+        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir este farmacêutico permanentemente">🗑️ Excluir</button>
       `;
     }
 
@@ -762,6 +795,10 @@ function approveUserAction(emailOrUid) {
 }
 
 function rejectUserAction(emailOrUid) {
+  if (isSuperUser(emailOrUid)) {
+    alert('🛡️ Proteção: O Super Usuário Mestre não pode ter seu acesso suspenso.');
+    return;
+  }
   const users = getRegisteredUsers();
   const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
   if (!target) return;
@@ -808,8 +845,8 @@ function deleteUserAction(emailOrUid) {
   }
 
   if (isSuperUser(emailOrUid)) {
-    alert('🛡️ Proteção de Segurança: Não é permitido excluir o Super Usuário.');
-    appendLog(`🛡️ Operação negada: O Super Usuário principal não pode ser deletado.`, 'log-warning');
+    alert('🛡️ Proteção de Segurança: O primeiro usuário cadastrado é o Super Usuário Mestre e NUNCA pode ser excluído.');
+    appendLog(`🛡️ Operação negada: O Super Usuário Mestre inicial não pode ser deletado.`, 'log-warning');
     return false;
   }
 
