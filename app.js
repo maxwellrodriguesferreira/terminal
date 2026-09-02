@@ -1,6 +1,6 @@
 /**
  * Terminal Apoio ao Tratamento - Drogasil Mogilar
- * Farmacêutico: Maxwell
+ * Farmacêutico & Drogaria Dinâmicos
  */
 
 const DEFAULT_CONFIG = {
@@ -26,14 +26,143 @@ const crtToggleBtn = document.getElementById('crtToggleBtn');
 const historyCounter = document.getElementById('historyCounter');
 
 /* ==========================================================================
-   SISTEMA DE AUTENTICAÇÃO E SESSÃO DO TERMINAL
+   SISTEMA DE GESTÃO DE USUÁRIOS, CADASTRO, SUPER USUÁRIO & SESSÃO
    ========================================================================== */
+
+const SUPER_ADMIN_EMAILS = [
+  'maxwellrodriguesferreira1@gmail.com',
+  'maxwell'
+];
 
 const DEFAULT_AUTH = {
   user: 'maxwell',
   pass: 'drogasil',
   name: 'Maxwell'
 };
+
+const USERS_STORAGE_KEY = 'apoio_users_registry';
+
+function getDefaultRegisteredUsers() {
+  return [
+    {
+      uid: 'bYjm6JcvscWIBe8pY79tTYgdS1g2',
+      email: 'maxwellrodriguesferreira1@gmail.com',
+      name: 'Maxwell',
+      drogaria: 'Drogasil Mogilar',
+      role: 'superadmin',
+      status: 'aprovado',
+      createdAt: '2026-09-01T00:00:00.000Z'
+    },
+    {
+      uid: 'local-superadmin',
+      email: 'maxwell',
+      name: 'Maxwell',
+      drogaria: 'Drogasil Mogilar',
+      role: 'superadmin',
+      status: 'aprovado',
+      createdAt: '2026-09-01T00:00:00.000Z'
+    }
+  ];
+}
+
+function getRegisteredUsers() {
+  const raw = localStorage.getItem(USERS_STORAGE_KEY);
+  if (!raw) {
+    const defaults = getDefaultRegisteredUsers();
+    saveRegisteredUsers(defaults);
+    return defaults;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.length) {
+      const defaults = getDefaultRegisteredUsers();
+      saveRegisteredUsers(defaults);
+      return defaults;
+    }
+    const hasAdmin = parsed.some(u => isSuperUser(u.email));
+    if (!hasAdmin) {
+      parsed.unshift(...getDefaultRegisteredUsers());
+      saveRegisteredUsers(parsed);
+    }
+    return parsed;
+  } catch (e) {
+    return getDefaultRegisteredUsers();
+  }
+}
+
+function saveRegisteredUsers(users) {
+  try {
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch (e) {
+    console.warn('Erro ao salvar registro de usuários:', e);
+  }
+}
+
+function findUserRecord(emailOrUidOrName) {
+  if (!emailOrUidOrName) return null;
+  const term = String(emailOrUidOrName).trim().toLowerCase();
+  const users = getRegisteredUsers();
+  return users.find(u => 
+    (u.email && u.email.toLowerCase() === term) ||
+    (u.uid && u.uid === term) ||
+    (u.name && u.name.toLowerCase() === term)
+  ) || null;
+}
+
+function isSuperUser(emailOrUid) {
+  if (!emailOrUid) return false;
+  const term = String(emailOrUid).trim().toLowerCase();
+  if (SUPER_ADMIN_EMAILS.includes(term)) return true;
+  const record = findUserRecord(term);
+  return Boolean(record && record.role === 'superadmin');
+}
+
+function formatSlug(str, defaultVal = 'user') {
+  if (!str) return defaultVal;
+  return str.toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || defaultVal;
+}
+
+function getPromptPrefixText() {
+  const session = getAuthSession();
+  const userSlug = formatSlug(session?.name || session?.user || DEFAULT_CONFIG.farmaceutico, 'maxwell');
+  const drogariaSlug = formatSlug(session?.drogaria || DEFAULT_CONFIG.drogaria, 'mogilar');
+  return `${userSlug}@${drogariaSlug}:~$`;
+}
+
+function applyUserSessionProfile(userData) {
+  if (!userData) return;
+  const name = userData.name || userData.user || DEFAULT_CONFIG.farmaceutico;
+  const drogaria = userData.drogaria || DEFAULT_CONFIG.drogaria;
+
+  DEFAULT_CONFIG.farmaceutico = name;
+  DEFAULT_CONFIG.drogaria = drogaria;
+
+  const promptUserDisplay = document.getElementById('promptUserDisplay');
+  const statusUserDisplay = document.getElementById('statusUserDisplay');
+  const statusDrogariaDisplay = document.getElementById('statusDrogariaDisplay');
+  const headerTerminalTitle = document.getElementById('headerTerminalTitle');
+
+  const userSlug = formatSlug(name, 'farmaceutico');
+  const drogariaSlug = formatSlug(drogaria, 'drogaria');
+
+  if (promptUserDisplay) promptUserDisplay.textContent = `${userSlug}@${drogariaSlug}`;
+  if (statusUserDisplay) statusUserDisplay.textContent = name;
+  if (statusDrogariaDisplay) statusDrogariaDisplay.textContent = drogaria;
+  if (headerTerminalTitle) headerTerminalTitle.textContent = `${userSlug}@${drogariaSlug}: ~/apoio-tratamento`;
+
+  // Atualiza campo drogaria no wizard se renderizado
+  const wizDrogaria = document.getElementById('wizDrogaria');
+  if (wizDrogaria && (!wizDrogaria.value || wizDrogaria.value === 'Drogasil Mogilar')) {
+    wizDrogaria.value = drogaria;
+  }
+  const wizFarmaceutico = document.getElementById('wizFarmaceutico');
+  if (wizFarmaceutico && (!wizFarmaceutico.value || wizFarmaceutico.value === 'Maxwell')) {
+    wizFarmaceutico.value = name;
+  }
+}
 
 function getAuthSession() {
   const sessionStr = sessionStorage.getItem('apoio_auth_session') || localStorage.getItem('apoio_auth_session');
@@ -59,24 +188,70 @@ function clearAuthSession() {
   localStorage.removeItem('apoio_auth_session');
 }
 
+function updateSuperUserToolbar() {
+  const adminBtn = document.getElementById('adminUsersBtn');
+  const badge = document.getElementById('pendingUsersBadge');
+  const session = getAuthSession();
+
+  if (session && isSuperUser(session.user)) {
+    if (adminBtn) adminBtn.style.display = 'inline-flex';
+    const users = getRegisteredUsers();
+    const pendingCount = users.filter(u => u.status === 'pendente').length;
+    if (badge) {
+      badge.textContent = pendingCount;
+      badge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
+    }
+  } else {
+    if (adminBtn) adminBtn.style.display = 'none';
+  }
+}
+
 function updateAuthStateUI(session) {
   const loginPanel = document.getElementById('loginPanel');
   const logoutBtn = document.getElementById('logoutBtn');
-  const promptUserDisplay = document.getElementById('promptUserDisplay');
-  const statusUserDisplay = document.getElementById('statusUserDisplay');
-  const headerTerminalTitle = document.getElementById('headerTerminalTitle');
 
   if (session && session.user) {
+    const isSuper = isSuperUser(session.user);
+    let record = findUserRecord(session.user) || findUserRecord(session.uid);
+
+    if (!record && isSuper) {
+      record = {
+        uid: session.uid || 'su-' + Date.now(),
+        email: session.user,
+        name: session.name || 'Maxwell',
+        drogaria: session.drogaria || 'Drogasil Mogilar',
+        role: 'superadmin',
+        status: 'aprovado',
+        createdAt: new Date().toISOString()
+      };
+      const all = getRegisteredUsers();
+      all.unshift(record);
+      saveRegisteredUsers(all);
+    }
+
+    // REGRA ESTRITA: Se não for Super Usuário e não estiver explicitamente aprovado, NÃO AUTENTICA!
+    if (!isSuper && (!record || record.status !== 'aprovado')) {
+      clearAuthSession();
+      if (loginPanel) loginPanel.hidden = false;
+      if (logoutBtn) logoutBtn.style.display = 'none';
+      const adminBtn = document.getElementById('adminUsersBtn');
+      if (adminBtn) adminBtn.style.display = 'none';
+      return;
+    }
+
+    if (record) {
+      session.name = record.name;
+      session.drogaria = record.drogaria;
+      session.role = record.role;
+      session.status = record.status;
+    }
+
+    applyUserSessionProfile(session);
+
     if (loginPanel) loginPanel.hidden = true;
     if (logoutBtn) logoutBtn.style.display = 'inline-block';
 
-    const userSlug = (session.user || 'maxwell').toLowerCase().replace(/\s+/g, '');
-    const userName = session.name || session.user || 'Maxwell';
-
-    DEFAULT_CONFIG.farmaceutico = userName;
-    if (promptUserDisplay) promptUserDisplay.textContent = `${userSlug}@mogilar`;
-    if (statusUserDisplay) statusUserDisplay.textContent = userName;
-    if (headerTerminalTitle) headerTerminalTitle.textContent = `${userSlug}@drogasil-mogilar: ~/apoio-tratamento`;
+    updateSuperUserToolbar();
 
     setTimeout(() => cliInput?.focus(), 50);
   } else {
@@ -86,11 +261,20 @@ function updateAuthStateUI(session) {
       setTimeout(() => userInput?.focus(), 50);
     }
     if (logoutBtn) logoutBtn.style.display = 'none';
+    const adminBtn = document.getElementById('adminUsersBtn');
+    if (adminBtn) adminBtn.style.display = 'none';
   }
 }
 
 function showLoginFeedback(message, typeClass) {
   const feedback = document.getElementById('loginFeedback');
+  if (!feedback) return;
+  feedback.className = `login-feedback ${typeClass || ''}`;
+  feedback.textContent = message;
+}
+
+function showRegisterFeedback(message, typeClass) {
+  const feedback = document.getElementById('registerFeedback');
   if (!feedback) return;
   feedback.className = `login-feedback ${typeClass || ''}`;
   feedback.textContent = message;
@@ -104,12 +288,33 @@ function triggerCardShake(cardEl) {
   setTimeout(() => cardEl.classList.remove('shake'), 600);
 }
 
-function fillDemoCredentials() {
-  const userInput = document.getElementById('loginUserInput');
-  const passInput = document.getElementById('loginPassInput');
-  if (userInput) userInput.value = DEFAULT_AUTH.user;
-  if (passInput) passInput.value = DEFAULT_AUTH.pass;
-  showLoginFeedback('💡 Credenciais demo preenchidas! Clique em Acessar.', 'is-success');
+function switchAuthTab(tab) {
+  const tabLoginBtn = document.getElementById('tabLoginBtn');
+  const tabRegisterBtn = document.getElementById('tabRegisterBtn');
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const loginBadge = document.getElementById('loginBadge');
+  const noticeContent = document.getElementById('noticeContent');
+
+  if (tab === 'register') {
+    if (tabLoginBtn) { tabLoginBtn.classList.remove('active'); tabLoginBtn.setAttribute('aria-selected', 'false'); }
+    if (tabRegisterBtn) { tabRegisterBtn.classList.add('active'); tabRegisterBtn.setAttribute('aria-selected', 'true'); }
+    if (loginForm) loginForm.style.display = 'none';
+    if (registerForm) registerForm.style.display = 'block';
+    if (loginBadge) loginBadge.textContent = '📝 NOVO CADASTRO';
+    if (noticeContent) noticeContent.textContent = 'Preencha seus dados para solicitar acesso do farmacêutico ao terminal.';
+    const regName = document.getElementById('regNameInput');
+    setTimeout(() => regName?.focus(), 50);
+  } else {
+    if (tabRegisterBtn) { tabRegisterBtn.classList.remove('active'); tabRegisterBtn.setAttribute('aria-selected', 'false'); }
+    if (tabLoginBtn) { tabLoginBtn.classList.add('active'); tabLoginBtn.setAttribute('aria-selected', 'true'); }
+    if (registerForm) registerForm.style.display = 'none';
+    if (loginForm) loginForm.style.display = 'block';
+    if (loginBadge) loginBadge.textContent = '🔒 ACESSO RESTRITO';
+    if (noticeContent) noticeContent.textContent = 'Autenticação necessária para acessar prontuários e geração de mensagens.';
+    const userInput = document.getElementById('loginUserInput');
+    setTimeout(() => userInput?.focus(), 50);
+  }
 }
 
 function toggleLoginPassVisibility() {
@@ -121,6 +326,142 @@ function toggleLoginPassVisibility() {
   if (toggleBtn) {
     toggleBtn.textContent = isPass ? '🙈' : '👁️';
     toggleBtn.setAttribute('aria-pressed', isPass ? 'true' : 'false');
+  }
+}
+
+function toggleRegisterPassVisibility() {
+  const passInput = document.getElementById('regPassInput');
+  const passConfirmInput = document.getElementById('regPassConfirmInput');
+  const toggleBtn = document.getElementById('regPassToggle');
+  if (!passInput) return;
+  const isPass = passInput.type === 'password';
+  passInput.type = isPass ? 'text' : 'password';
+  if (passConfirmInput) passConfirmInput.type = isPass ? 'text' : 'password';
+  if (toggleBtn) {
+    toggleBtn.textContent = isPass ? '🙈' : '👁️';
+    toggleBtn.setAttribute('aria-pressed', isPass ? 'true' : 'false');
+  }
+}
+
+async function handleRegisterSubmit(e) {
+  if (e) e.preventDefault();
+  const nameInput = document.getElementById('regNameInput');
+  const drogariaInput = document.getElementById('regDrogariaInput');
+  const emailInput = document.getElementById('regEmailInput');
+  const passInput = document.getElementById('regPassInput');
+  const passConfirmInput = document.getElementById('regPassConfirmInput');
+  const submitBtn = document.getElementById('registerSubmitBtn');
+  const loginCard = document.querySelector('.login-card');
+
+  const name = nameInput?.value.trim();
+  const drogaria = drogariaInput?.value.trim();
+  const email = emailInput?.value.trim().toLowerCase();
+  const pass = passInput?.value;
+  const passConfirm = passConfirmInput?.value;
+
+  if (!name || !drogaria || !email || !pass || !passConfirm) {
+    showRegisterFeedback('⚠️ Por favor, preencha todos os campos obrigatórios.', 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  if (!email.includes('@') || !email.includes('.')) {
+    showRegisterFeedback('⚠️ Digite um endereço de e-mail válido.', 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  if (pass.length < 6) {
+    showRegisterFeedback('⚠️ A senha deve ter no mínimo 6 caracteres.', 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  if (pass !== passConfirm) {
+    showRegisterFeedback('⚠️ As senhas digitadas não coincidem.', 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  const existing = findUserRecord(email);
+  if (existing) {
+    showRegisterFeedback(`⚠️ O e-mail "${email}" já possui cadastro (Status: ${existing.status.toUpperCase()}).`, 'is-error');
+    triggerCardShake(loginCard);
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  showRegisterFeedback('🔄 Criando cadastro do farmacêutico...', 'is-warning');
+
+  window.__IS_REGISTERING = true;
+  let registeredUid = 'user-' + Date.now();
+  let usedFirebase = false;
+
+  try {
+    if (typeof firebaseRegister === 'function' && typeof isFirebaseConfigured === 'function' && isFirebaseConfigured()) {
+      try {
+        const userCredential = await firebaseRegister(email, pass, name);
+        if (userCredential && userCredential.user) {
+          registeredUid = userCredential.user.uid;
+          usedFirebase = true;
+        }
+      } catch (fbErr) {
+        console.warn('Aviso ao cadastrar via Firebase Auth:', fbErr);
+        if (fbErr.code === 'auth/email-already-in-use') {
+          showRegisterFeedback('⚠️ Este e-mail já está cadastrado no sistema.', 'is-error');
+          triggerCardShake(loginCard);
+          if (submitBtn) submitBtn.disabled = false;
+          return;
+        } else if (fbErr.code === 'auth/weak-password') {
+          showRegisterFeedback('⚠️ Senha fraca. Utilize uma senha com letras e números.', 'is-error');
+          triggerCardShake(loginCard);
+          if (submitBtn) submitBtn.disabled = false;
+          return;
+        }
+      }
+    }
+
+    const newUser = {
+      uid: registeredUid,
+      email: email,
+      name: name,
+      drogaria: drogaria,
+      role: 'farmaceutico',
+      status: 'pendente', // Aguarda aprovação do Super Usuário
+      authProvider: usedFirebase ? 'firebase' : 'local',
+      createdAt: new Date().toISOString()
+    };
+
+    const users = getRegisteredUsers();
+    users.push(newUser);
+    saveRegisteredUsers(users);
+
+    // Garante que o novo usuário NÃO fique logado após o cadastro
+    clearAuthSession();
+    if (typeof firebaseLogout === 'function') {
+      try { await firebaseLogout(); } catch (e) {}
+    }
+
+    if (nameInput) nameInput.value = '';
+    if (drogariaInput) drogariaInput.value = '';
+    if (emailInput) emailInput.value = '';
+    if (passInput) passInput.value = '';
+    if (passConfirmInput) passConfirmInput.value = '';
+
+    showRegisterFeedback('🎉 Cadastro enviado com sucesso! Aguarde a aprovação do Super Usuário para liberar seu acesso.', 'is-success');
+    appendLog(`📝 <strong>Novo cadastro registrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Status: <strong>Aguardando aprovação</strong>.`, 'log-info');
+
+    if (submitBtn) submitBtn.disabled = false;
+    updateSuperUserToolbar();
+
+    setTimeout(() => {
+      switchAuthTab('login');
+      const loginUser = document.getElementById('loginUserInput');
+      if (loginUser) loginUser.value = email;
+      showLoginFeedback('✅ Cadastro realizado! Aguarde a aprovação do Super Usuário antes do primeiro login.', 'is-warning');
+    }, 3500);
+  } finally {
+    window.__IS_REGISTERING = false;
   }
 }
 
@@ -141,40 +482,100 @@ async function handleLoginSubmit(e) {
     return;
   }
 
-  if (!rawUser.includes('@') || !rawUser.includes('.')) {
-    showLoginFeedback('⚠️ Digite um endereço de e-mail válido.', 'is-error');
-    triggerCardShake(loginCard);
-    return;
-  }
-
   if (submitBtn) submitBtn.disabled = true;
-  showLoginFeedback('🔄 Autenticando com Firebase...', 'is-warning');
+  showLoginFeedback('🔄 Validando credenciais de acesso...', 'is-warning');
 
   try {
     const remember = rememberCheckbox ? rememberCheckbox.checked : true;
-    const userCredential = await firebaseLogin(rawUser, rawPass, remember);
-    const user = userCredential.user;
-    const displayName = user.displayName || user.email.split('@')[0];
-    const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+    let userEmail = rawUser;
+    let formattedName = 'Farmacêutico';
+    let uid = 'user-' + Date.now();
+    let authType = 'firebase';
 
+    // Suporte a login demo do administrador local quando offline ou credencial padrão
+    if (rawUser.toLowerCase() === DEFAULT_AUTH.user && rawPass === DEFAULT_AUTH.pass && (!isFirebaseConfigured() || !window.navigator.onLine)) {
+      userEmail = 'maxwellrodriguesferreira1@gmail.com';
+      formattedName = DEFAULT_AUTH.name;
+      uid = 'local-superadmin';
+      authType = 'local-admin';
+    } else {
+      const userCredential = await firebaseLogin(rawUser, rawPass, remember);
+      const user = userCredential.user;
+      userEmail = user.email;
+      uid = user.uid;
+      const displayName = user.displayName || user.email.split('@')[0];
+      formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+    }
+
+    // Validação de Status e Moderação de Acesso
+    const isSuper = isSuperUser(userEmail);
+    let record = findUserRecord(userEmail) || findUserRecord(uid);
+    if (!record && isSuper) {
+      record = {
+        uid: uid,
+        email: userEmail,
+        name: formattedName,
+        drogaria: 'Drogasil Mogilar',
+        role: 'superadmin',
+        status: 'aprovado',
+        createdAt: new Date().toISOString()
+      };
+      const all = getRegisteredUsers();
+      all.unshift(record);
+      saveRegisteredUsers(all);
+    } else if (!record) {
+      record = {
+        uid: uid,
+        email: userEmail,
+        name: formattedName,
+        drogaria: 'Drogasil Mogilar',
+        role: 'farmaceutico',
+        status: 'pendente',
+        createdAt: new Date().toISOString()
+      };
+      const all = getRegisteredUsers();
+      all.push(record);
+      saveRegisteredUsers(all);
+    }
+
+    // REGRA ESTRITA: Bloqueio imediato se não for Super Usuário e não estiver explicitamente APROVADO
+    if (!isSuper && (!record || record.status !== 'aprovado')) {
+      clearAuthSession();
+      if (typeof firebaseLogout === 'function') await firebaseLogout();
+      if (record && record.status === 'rejeitado') {
+        showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
+      } else {
+        showLoginFeedback('⏳ Seu cadastro está PENDENTE DE APROVAÇÃO pelo Super Usuário. Aguarde a liberação do seu acesso.', 'is-warning');
+      }
+      triggerCardShake(loginCard);
+      if (passInput) passInput.value = '';
+      return;
+    }
+
+    // Acesso autorizado!
     const session = {
-      user: user.email,
-      name: formattedName,
-      uid: user.uid,
-      authType: 'firebase',
+      user: userEmail,
+      name: record.name || formattedName,
+      drogaria: record.drogaria || 'Drogasil Mogilar',
+      role: record.role || 'farmaceutico',
+      status: record.status,
+      uid: uid,
+      authType: authType,
       loginTime: new Date().toISOString()
     };
 
     setAuthSession(session, remember);
     updateAuthStateUI(session);
-    appendLog(`🟢 <strong>Autenticado via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(formattedName)}</strong> (${escapeHTML(user.email)}).`, 'log-success');
+
+    const roleBadge = isSuperUser(userEmail) ? ' 👑 [SUPER USUÁRIO]' : '';
+    appendLog(`🟢 <strong>Autenticado com sucesso.</strong> Farmacêutico: <strong>${escapeHTML(session.name)}</strong> (${escapeHTML(session.drogaria)})${roleBadge}.`, 'log-success');
     showLoginFeedback('', '');
     if (passInput) passInput.value = '';
   } catch (error) {
-    console.error('Erro de autenticação Firebase:', error);
+    console.error('Erro de autenticação:', error);
     let errorMsg = '❌ Falha ao autenticar.';
     if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-      errorMsg = '❌ E-mail ou senha incorretos no Firebase.';
+      errorMsg = '❌ E-mail ou senha incorretos.';
     } else if (error.code === 'auth/invalid-email') {
       errorMsg = '❌ O formato do e-mail é inválido.';
     } else if (error.code === 'auth/user-disabled') {
@@ -182,7 +583,7 @@ async function handleLoginSubmit(e) {
     } else if (error.code === 'auth/too-many-requests') {
       errorMsg = '⚠️ Acesso bloqueado temporariamente por excesso de tentativas.';
     } else if (error.code === 'auth/network-request-failed') {
-      errorMsg = '⚠️ Erro de conexão com os servidores do Firebase.';
+      errorMsg = '⚠️ Erro de conexão com os servidores de autenticação.';
     } else if (error.message) {
       errorMsg = `❌ ${error.message}`;
     }
@@ -218,7 +619,8 @@ async function logoutUser() {
 function showCurrentUser() {
   const session = getAuthSession();
   if (session) {
-    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)}) [🔥 Firebase] | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
+    const isSuper = isSuperUser(session.user) ? ' 👑 [SUPER USUÁRIO]' : '';
+    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)})${isSuper} | 🏬 Drogaria: <strong>${escapeHTML(DEFAULT_CONFIG.drogaria)}</strong> | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
   } else {
     appendLog(`⚠️ Nenhuma sessão ativa no momento.`, 'log-warning');
   }
@@ -230,31 +632,271 @@ function handlePasswordChange(newPass) {
     appendLog(`⚠️ Você precisa estar conectado para alterar a senha.`, 'log-error');
     return;
   }
-  appendLog(`ℹ️ Para alterar a senha da sua conta Firebase, redefina-a através do console do Firebase ou do fluxo de recuperação de senha por e-mail.`, 'log-info');
+  appendLog(`ℹ️ Para alterar a senha da sua conta, redefina-a através do console do Firebase ou do fluxo de recuperação de senha por e-mail.`, 'log-info');
+}
+
+/* ==========================================================================
+   PAINEL ADMINISTRATIVO DO SUPER USUÁRIO (GESTÃO E APROVAÇÃO DE FARMACÊUTICOS)
+   ========================================================================== */
+
+function openAdminUsersPanel() {
+  const session = getAuthSession();
+  if (!session || !isSuperUser(session.user)) {
+    appendLog('⚠️ Acesso negado: Somente o <strong>Super Usuário</strong> pode acessar a gestão de cadastros.', 'log-error');
+    return;
+  }
+
+  const panel = document.getElementById('adminUsersPanel');
+  if (!panel) return;
+
+  renderAdminUsersTable();
+  panel.hidden = false;
+}
+
+function closeAdminUsersPanel() {
+  const panel = document.getElementById('adminUsersPanel');
+  if (panel) panel.hidden = true;
+  cliInput?.focus();
+}
+
+function renderAdminUsersTable() {
+  const users = getRegisteredUsers();
+  const container = document.getElementById('adminUsersTableContainer');
+  const statPending = document.getElementById('statPendingCount');
+  const statApproved = document.getElementById('statApprovedCount');
+  const statTotal = document.getElementById('statTotalCount');
+
+  const pendingList = users.filter(u => u.status === 'pendente');
+  const approvedList = users.filter(u => u.status === 'aprovado');
+
+  if (statPending) statPending.textContent = pendingList.length;
+  if (statApproved) statApproved.textContent = approvedList.length;
+  if (statTotal) statTotal.textContent = users.length;
+
+  if (!container) return;
+
+  if (!users.length) {
+    container.innerHTML = `<div class="admin-empty-state">Nenhum farmacêutico cadastrado no momento.</div>`;
+    return;
+  }
+
+  let tableHTML = `
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>👨‍⚕️ Farmacêutico</th>
+          <th>🏬 Drogaria / Filial</th>
+          <th>✉️ E-mail de Acesso</th>
+          <th>📅 Cadastro</th>
+          <th>Status</th>
+          <th>Ações de Moderação</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  users.forEach(u => {
+    const isRootAdmin = isSuperUser(u.email);
+    const dateFormatted = u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '—';
+    
+    let statusBadge = '';
+    if (u.status === 'pendente') {
+      statusBadge = `<span class="status-badge pending">⏳ Pendente</span>`;
+    } else if (u.status === 'rejeitado') {
+      statusBadge = `<span class="status-badge rejected">❌ Recusado</span>`;
+    } else {
+      statusBadge = `<span class="status-badge approved">✅ Aprovado</span>`;
+    }
+
+    let actionsHTML = '';
+    if (isRootAdmin) {
+      actionsHTML = `<span class="log-dim" style="font-size: 0.76rem;">👑 Super Usuário Mestre</span>`;
+    } else {
+      const emailEsc = escapeHTML(u.email);
+      if (u.status === 'pendente') {
+        actionsHTML = `
+          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar cadastro">✅ Aprovar</button>
+          <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Recusar cadastro">❌ Recusar</button>
+          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
+        `;
+      } else if (u.status === 'aprovado') {
+        actionsHTML = `
+          <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Suspender acesso">🚫 Suspender</button>
+          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
+        `;
+      } else {
+        actionsHTML = `
+          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Reativar e aprovar acesso">✅ Reativar</button>
+          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
+          <button class="admin-btn-action" onclick="deleteUserAction('${emailEsc}')" title="Remover cadastro">🗑️</button>
+        `;
+      }
+    }
+
+    tableHTML += `
+      <tr>
+        <td><strong>${escapeHTML(u.name || '—')}</strong>${isRootAdmin ? ' <span style="color:#ffd700">👑</span>' : ''}</td>
+        <td>${escapeHTML(u.drogaria || '—')}</td>
+        <td><code>${escapeHTML(u.email || '—')}</code></td>
+        <td><small class="log-dim">${dateFormatted}</small></td>
+        <td>${statusBadge}</td>
+        <td><div class="admin-actions-cell">${actionsHTML}</div></td>
+      </tr>
+    `;
+  });
+
+  tableHTML += `
+      </tbody>
+    </table>
+  `;
+
+  container.innerHTML = tableHTML;
+}
+
+function approveUserAction(emailOrUid) {
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  target.status = 'aprovado';
+  saveRegisteredUsers(users);
+  renderAdminUsersTable();
+  updateSuperUserToolbar();
+  appendLog(`✅ <strong>Farmacêutico Aprovado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.drogaria)} - ${escapeHTML(target.email)}). Acesso liberado!`, 'log-success');
+}
+
+function rejectUserAction(emailOrUid) {
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  target.status = 'rejeitado';
+  saveRegisteredUsers(users);
+  renderAdminUsersTable();
+  updateSuperUserToolbar();
+  appendLog(`🚫 <strong>Acesso Recusado / Suspenso:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}).`, 'log-warning');
+}
+
+function editUserAction(emailOrUid) {
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  const newName = prompt(`Editar Nome do Farmacêutico para ${target.email}:`, target.name);
+  if (newName === null) return;
+  const newDrogaria = prompt(`Editar Drogaria/Filial para ${target.email}:`, target.drogaria);
+  if (newDrogaria === null) return;
+
+  if (newName.trim()) target.name = newName.trim();
+  if (newDrogaria.trim()) target.drogaria = newDrogaria.trim();
+  saveRegisteredUsers(users);
+
+  // Se o usuário editado for o mesmo da sessão ativa, atualiza toda a aplicação dinamicamente!
+  const currentSession = getAuthSession();
+  if (currentSession && (currentSession.user === target.email || currentSession.uid === target.uid)) {
+    currentSession.name = target.name;
+    currentSession.drogaria = target.drogaria;
+    setAuthSession(currentSession, true);
+    applyUserSessionProfile(currentSession);
+  }
+
+  renderAdminUsersTable();
+  appendLog(`✏️ <strong>Cadastro atualizado:</strong> ${escapeHTML(target.name)} pertencente à <strong>${escapeHTML(target.drogaria)}</strong>.`, 'log-info');
+}
+
+function deleteUserAction(emailOrUid) {
+  if (isSuperUser(emailOrUid)) {
+    alert('Não é permitido excluir o Super Usuário principal.');
+    return;
+  }
+  if (!confirm(`Tem certeza que deseja excluir o cadastro de ${emailOrUid}?`)) return;
+
+  const users = getRegisteredUsers();
+  const filtered = users.filter(u => u.email !== emailOrUid && u.uid !== emailOrUid);
+  saveRegisteredUsers(filtered);
+  renderAdminUsersTable();
+  updateSuperUserToolbar();
+  appendLog(`🗑️ <strong>Cadastro removido:</strong> ${escapeHTML(emailOrUid)}.`, 'log-warning');
+}
+
+// Expõe ações globais para cliques inline no HTML da tabela administrativa
+if (typeof window !== 'undefined') {
+  window.approveUserAction = approveUserAction;
+  window.rejectUserAction = rejectUserAction;
+  window.editUserAction = editUserAction;
+  window.deleteUserAction = deleteUserAction;
+  window.openAdminUsersPanel = openAdminUsersPanel;
+  window.closeAdminUsersPanel = closeAdminUsersPanel;
 }
 
 function initializeAuth() {
   const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const tabLoginBtn = document.getElementById('tabLoginBtn');
+  const tabRegisterBtn = document.getElementById('tabRegisterBtn');
   const loginPassToggle = document.getElementById('loginPassToggle');
+  const regPassToggle = document.getElementById('regPassToggle');
   const loginThemeBtn = document.getElementById('loginThemeBtn');
   const logoutBtn = document.getElementById('logoutBtn');
+  const adminUsersBtn = document.getElementById('adminUsersBtn');
+  const adminUsersCloseBtn = document.getElementById('adminUsersCloseBtn');
+
+  if (tabLoginBtn) tabLoginBtn.addEventListener('click', () => switchAuthTab('login'));
+  if (tabRegisterBtn) tabRegisterBtn.addEventListener('click', () => switchAuthTab('register'));
 
   if (loginForm) loginForm.addEventListener('submit', handleLoginSubmit);
+  if (registerForm) registerForm.addEventListener('submit', handleRegisterSubmit);
+
   if (loginPassToggle) loginPassToggle.addEventListener('click', toggleLoginPassVisibility);
+  if (regPassToggle) regPassToggle.addEventListener('click', toggleRegisterPassVisibility);
+
   if (loginThemeBtn) loginThemeBtn.addEventListener('click', toggleTheme);
   if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
+
+  if (adminUsersBtn) adminUsersBtn.addEventListener('click', openAdminUsersPanel);
+  if (adminUsersCloseBtn) adminUsersCloseBtn.addEventListener('click', closeAdminUsersPanel);
+
+  document.querySelectorAll('[data-admin-close]').forEach(el => {
+    el.addEventListener('click', closeAdminUsersPanel);
+  });
 
   // Inicializa o Firebase se configurado
   if (typeof initFirebase === 'function') {
     const auth = initFirebase();
     if (auth && typeof auth.onAuthStateChanged === 'function') {
-      auth.onAuthStateChanged((user) => {
+      auth.onAuthStateChanged(async (user) => {
+        if (window.__IS_REGISTERING) {
+          return;
+        }
         if (user) {
-          const displayName = user.displayName || user.email.split('@')[0];
+          const isSuper = isSuperUser(user.email);
+          const record = findUserRecord(user.email) || findUserRecord(user.uid);
+
+          // REGRA ESTRITA: Bloqueia qualquer conta pendente, não cadastrada ou não aprovada
+          if (!isSuper && (!record || record.status !== 'aprovado')) {
+            clearAuthSession();
+            updateAuthStateUI(null);
+            try {
+              if (typeof firebaseLogout === 'function') await firebaseLogout();
+            } catch (e) {}
+            if (record && record.status === 'rejeitado') {
+              showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
+            } else {
+              showLoginFeedback('⏳ Seu cadastro está PENDENTE DE APROVAÇÃO pelo Super Usuário. Aguarde a liberação do seu acesso.', 'is-warning');
+            }
+            return;
+          }
+
+          const displayName = (record && record.name) || user.displayName || user.email.split('@')[0];
           const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+          const drogaria = (record && record.drogaria) || DEFAULT_CONFIG.drogaria;
+
           const session = {
             user: user.email,
             name: formattedName,
+            drogaria: drogaria,
+            role: (record && record.role) || (isSuper ? 'superadmin' : 'farmaceutico'),
+            status: (record && record.status) || 'aprovado',
             uid: user.uid,
             authType: 'firebase',
             loginTime: new Date().toISOString()
@@ -341,12 +983,14 @@ function toggleCRT() {
 
 // Imprimir Banner Inicial
 function renderWelcomeBanner() {
+  const drogaria = escapeHTML(DEFAULT_CONFIG.drogaria || 'Drogaria');
+  const farmaceutico = escapeHTML(DEFAULT_CONFIG.farmaceutico || 'Farmacêutico');
   const bannerHTML = `
     <div class="welcome-banner">
       <div class="welcome-title">
         <span>💊 Apoio ao Tratamento v2.0</span>
-        <span class="badge-tag">Drogasil Mogilar</span>
-        <span class="badge-tag">Farmacêutico: Maxwell</span>
+        <span class="badge-tag" id="welcomeDrogariaBadge">${drogaria}</span>
+        <span class="badge-tag" id="welcomeFarmaceuticoBadge">Farmacêutico: ${farmaceutico}</span>
       </div>
       <p class="log-dim">Gerador de mensagens humanizadas e personalizadas de acompanhamento farmacêutico pós-venda / pós-tratamento.</p>
       <p style="margin-top: 8px;">✨ <strong>Como começar:</strong> Clique nos botões acima ou digite <code class="log-info">novo</code> ou <code class="log-info">lote</code> no terminal abaixo.</p>
@@ -857,7 +1501,7 @@ async function generateMessagesAI(params) {
   };
 
   const prompt = `
-Você é o Farmacêutico Maxwell da filial ${data.drogaria}.
+Você é o Farmacêutico ${data.farmaceutico} da filial ${data.drogaria}.
 Sua missão é gerar 4 variações de mensagens de acompanhamento de pós-venda em português do Brasil para o WhatsApp do cliente.
 
 DADOS DO ATENDIMENTO:
@@ -1680,7 +2324,7 @@ function handleInputKeydown(e) {
     commandHistory.push(rawInput);
     commandIndex = commandHistory.length;
 
-    appendLog(`<div class="log-cmd"><span>maxwell@mogilar:~$</span> <span>${escapeHTML(rawInput)}</span></div>`);
+    appendLog(`<div class="log-cmd"><span>${escapeHTML(getPromptPrefixText())}</span> <span>${escapeHTML(rawInput)}</span></div>`);
 
     cliInput.value = '';
     executeCommand(rawInput);
@@ -1849,6 +2493,42 @@ async function executeCommand(inputCmd) {
       handlePasswordChange(parts[1]);
       break;
 
+    case 'usuarios':
+    case 'farmaceuticos':
+    case 'admin':
+    case 'aprovacoes':
+      const sessionAdm = getAuthSession();
+      if (!sessionAdm || !isSuperUser(sessionAdm.user)) {
+        appendLog(`⚠️ O gerenciamento de cadastros é restrito ao <strong>Super Usuário</strong>.`, 'log-error');
+      } else {
+        openAdminUsersPanel();
+        appendLog(`👥 <strong>Painel do Super Usuário aberto.</strong> Modere cadastros pendentes ou atualize drogarias.`, 'log-info');
+      }
+      break;
+
+    case 'aprovar':
+      const admSessApprove = getAuthSession();
+      if (!admSessApprove || !isSuperUser(admSessApprove.user)) {
+        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> pode aprovar cadastros.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">aprovar &lt;email_ou_nome&gt;</code> ou abra o comando <code class="log-info">usuarios</code>.`, 'log-warning');
+      } else {
+        approveUserAction(parts[1]);
+      }
+      break;
+
+    case 'recusar':
+    case 'suspender':
+      const admSessReject = getAuthSession();
+      if (!admSessReject || !isSuperUser(admSessReject.user)) {
+        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> pode recusar ou suspender cadastros.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">recusar &lt;email_ou_nome&gt;</code> ou abra o comando <code class="log-info">usuarios</code>.`, 'log-warning');
+      } else {
+        rejectUserAction(parts[1]);
+      }
+      break;
+
     default:
       appendLog(`❌ Comando não reconhecido: "<strong>${escapeHTML(inputCmd)}</strong>". Digite <code class="log-info">ajuda</code> ou <code class="log-info">novo</code>.`, 'log-error');
       break;
@@ -1932,13 +2612,15 @@ function reRenderHistoryItem(id) {
 }
 
 function showHelp() {
+  const drogaria = escapeHTML(DEFAULT_CONFIG.drogaria || 'Drogaria');
+  const farmaceutico = escapeHTML(DEFAULT_CONFIG.farmaceutico || 'Farmacêutico');
   const helpHTML = `
     <div class="wizard-box">
       <div class="wizard-title" style="color: var(--prompt-color);">
-        <span>❓ Menu de Ajuda & Guia de Comandos — Drogasil Mogilar</span>
+        <span>❓ Menu de Ajuda & Guia de Comandos — ${drogaria}</span>
       </div>
       <p class="log-dim" style="margin-bottom: 12px;">
-        👨⚕️ Bem-vindo ao sistema de acompanhamento do farmacêutico <strong>Maxwell</strong>. Utilize os botões interativos abaixo ou digite os comandos diretamente no terminal.
+        👨⚕️ Bem-vindo ao sistema de acompanhamento do farmacêutico <strong>${farmaceutico}</strong> (${drogaria}). Utilize os botões interativos abaixo ou digite os comandos diretamente no terminal.
       </p>
 
       <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
@@ -1983,6 +2665,16 @@ function showHelp() {
             <td><code>historico</code></td>
             <td>Exibe o histórico de mensagens geradas hoje.</td>
             <td><code>historico</code> (ou <code>historico limpar</code>)</td>
+          </tr>
+          <tr>
+            <td><code>usuarios</code> / <code>admin</code></td>
+            <td>Painel do Super Usuário para aprovar e gerenciar farmacêuticos.</td>
+            <td><code>usuarios</code></td>
+          </tr>
+          <tr>
+            <td><code>aprovar [email]</code></td>
+            <td>Aprova diretamente o cadastro de um farmacêutico pelo CLI.</td>
+            <td><code>aprovar ana@drogasil.com</code></td>
           </tr>
           <tr>
             <td><code>apikey [chave]</code></td>

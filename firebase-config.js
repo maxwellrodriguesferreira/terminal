@@ -83,6 +83,33 @@ async function firebaseLogin(email, password, remember = true) {
   return await auth.signInWithEmailAndPassword(email, password);
 }
 
+// Função auxiliar de cadastro de novo usuário
+async function firebaseRegister(email, password, displayName) {
+  const auth = firebaseAuthInstance || initFirebase();
+  if (!auth) {
+    throw new Error('FIREBASE_NOT_CONFIGURED');
+  }
+
+  const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+  if (displayName && userCredential.user && typeof userCredential.user.updateProfile === 'function') {
+    try {
+      await userCredential.user.updateProfile({ displayName: displayName });
+    } catch (e) {
+      console.warn('Erro ao definir displayName no Firebase:', e);
+    }
+  }
+
+  // IMPORTANTE: O Firebase conecta a conta automaticamente ao criá-la.
+  // Desconectamos imediatamente para impedir que contas pendentes de aprovação autentiquem.
+  try {
+    await auth.signOut();
+  } catch (errSignOut) {
+    console.warn('Aviso ao deslogar após registro:', errSignOut);
+  }
+
+  return userCredential;
+}
+
 // Função auxiliar de logout
 async function firebaseLogout() {
   const auth = firebaseAuthInstance || initFirebase();
@@ -97,5 +124,7 @@ if (typeof window !== 'undefined') {
   window.isFirebaseConfigured = isFirebaseConfigured;
   window.initFirebase = initFirebase;
   window.firebaseLogin = firebaseLogin;
+  window.firebaseRegister = firebaseRegister;
   window.firebaseLogout = firebaseLogout;
 }
+

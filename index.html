@@ -45,6 +45,7 @@
       <button class="tool-btn primary btn-batch-quick" type="button" onclick="startBatchWizard()">📦 Lote WhatsApp</button>
       <button class="tool-btn" type="button" onclick="executeCommand('historico')">📜 Histórico</button>
       <button class="tool-btn" id="geminiConfigBtn" type="button">⚙️ Configurações</button>
+      <button class="tool-btn" id="adminUsersBtn" type="button" style="display: none;" title="Painel do Super Usuário">👥 Farmacêuticos <span id="pendingUsersBadge" class="badge-counter" style="display: none;">0</span></button>
       <button class="tool-btn danger" type="button" onclick="executeCommand('limpar')">🧹 Limpar</button>
     </nav>
 
@@ -62,7 +63,7 @@
         <input type="text" id="cliInput" placeholder="Digite um comando (ex: 'novo' ou 'ajuda')..." autocomplete="off" spellcheck="false">
       </div>
       <div class="status-bar">
-        <span class="status-item"><span class="status-dot"></span> Drogaria: <strong>Drogasil Mogilar</strong></span>
+        <span class="status-item"><span class="status-dot"></span> Drogaria: <strong id="statusDrogariaDisplay">Drogasil Mogilar</strong></span>
         <span class="status-item">👨‍⚕️ Farmacêutico: <strong id="statusUserDisplay">Maxwell</strong></span>
         <span class="status-item" id="historyCounter">📋 Mensagens hoje: 0</span>
         <span class="status-hint">Pressione <kbd>TAB</kbd> ou <kbd>↑</kbd>/<kbd>↓</kbd> para histórico</span>
@@ -70,7 +71,7 @@
     </footer>
   </div>
 
-  <!-- Login Modal / Screen -->
+  <!-- Login & Cadastro Modal / Screen -->
   <section class="login-panel" id="loginPanel" aria-labelledby="loginTitle">
     <div class="login-backdrop"></div>
     <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
@@ -80,7 +81,7 @@
           <span class="control minimize"></span>
           <span class="control maximize"></span>
         </div>
-        <span class="login-badge">🔒 ACESSO RESTRITO</span>
+        <span class="login-badge" id="loginBadge">🔒 ACESSO RESTRITO</span>
         <div class="login-theme-switcher">
           <button id="loginThemeBtn" type="button" title="Trocar Tema Visual">🎨 Tema</button>
         </div>
@@ -90,15 +91,26 @@
         <div class="login-logo-badge">💊🩺</div>
         <div>
           <h1 id="loginTitle">Terminal de Apoio Farmacêutico</h1>
-          <p class="login-subtitle">Drogasil Mogilar · Acompanhamento & Serviços Clínicos</p>
+          <p class="login-subtitle" id="loginSubtitle">Acompanhamento Clínico & Geração de Mensagens</p>
         </div>
       </div>
 
-      <div class="login-security-notice">
-        <span class="pulse-dot"></span>
-        <span>Autenticação necessária para acessar prontuários e geração de mensagens.</span>
+      <!-- Abas: Entrar vs Novo Cadastro -->
+      <div class="auth-tabs" role="tablist" aria-label="Opções de Acesso">
+        <button type="button" class="auth-tab-btn active" id="tabLoginBtn" role="tab" aria-selected="true" aria-controls="loginForm">
+          🔑 Entrar no Sistema
+        </button>
+        <button type="button" class="auth-tab-btn" id="tabRegisterBtn" role="tab" aria-selected="false" aria-controls="registerForm">
+          📝 Novo Farmacêutico (Cadastro)
+        </button>
       </div>
 
+      <div class="login-security-notice" id="authNoticeText">
+        <span class="pulse-dot"></span>
+        <span id="noticeContent">Autenticação necessária para acessar prontuários e geração de mensagens.</span>
+      </div>
+
+      <!-- Formulário de Login -->
       <form id="loginForm" novalidate autocomplete="on">
         <div class="login-field-group">
           <label class="login-label" for="loginUserInput">
@@ -135,6 +147,102 @@
           </button>
         </div>
       </form>
+
+      <!-- Formulário de Cadastro de Novo Farmacêutico -->
+      <form id="registerForm" novalidate autocomplete="off" style="display: none;">
+        <div class="login-field-group">
+          <label class="login-label" for="regNameInput">
+            <span>👨‍⚕️</span> Nome Completo do Farmacêutico
+          </label>
+          <div class="login-input-wrapper">
+            <input id="regNameInput" type="text" autocomplete="name" placeholder="Ex: Dr. Carlos Eduardo / Maxwell" required>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="regDrogariaInput">
+            <span>🏬</span> Drogaria onde Trabalha (Filial / Unidade)
+          </label>
+          <div class="login-input-wrapper">
+            <input id="regDrogariaInput" type="text" autocomplete="organization" placeholder="Ex: Drogasil Mogilar, Raia Centro..." required>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="regEmailInput">
+            <span>✉️</span> E-mail de Acesso (Login)
+          </label>
+          <div class="login-input-wrapper">
+            <input id="regEmailInput" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="farmaceutico@exemplo.com" required>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="regPassInput">
+            <span>🔑</span> Senha de Acesso (Mínimo 6 caracteres)
+          </label>
+          <div class="login-input-wrapper password-wrapper">
+            <input id="regPassInput" type="password" autocomplete="new-password" placeholder="Defina sua senha..." minlength="6" required>
+            <button id="regPassToggle" type="button" aria-label="Mostrar ou ocultar senha" title="Mostrar/Ocultar senha">👁️</button>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="regPassConfirmInput">
+            <span>🔒</span> Confirmar Senha
+          </label>
+          <div class="login-input-wrapper">
+            <input id="regPassConfirmInput" type="password" autocomplete="new-password" placeholder="Repita a senha..." minlength="6" required>
+          </div>
+        </div>
+
+        <div class="register-approval-notice">
+          <span class="pulse-dot"></span>
+          <span><strong>Moderação Ativa:</strong> O cadastro passará por aprovação prévia do <strong>Super Usuário</strong> antes da liberação do terminal.</span>
+        </div>
+
+        <div class="login-feedback" id="registerFeedback" role="alert" aria-live="polite"></div>
+
+        <div class="login-actions">
+          <button class="tool-btn primary login-btn" type="submit" id="registerSubmitBtn">
+            ✨ Solicitar Cadastro de Farmacêutico
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Modal Administrativo de Gestão de Usuários (Super Usuário) -->
+  <section class="admin-users-panel" id="adminUsersPanel" aria-labelledby="adminUsersTitle" hidden>
+    <div class="admin-users-backdrop" data-admin-close></div>
+    <div class="admin-users-card" role="dialog" aria-modal="true" aria-labelledby="adminUsersTitle">
+      <div class="admin-users-header">
+        <div>
+          <div class="super-user-badge">👑 PAINEL DO SUPER USUÁRIO</div>
+          <h2 id="adminUsersTitle">👥 Gestão de Farmacêuticos & Filiais</h2>
+          <p class="admin-users-subtitle">Aprove novos cadastros, gerencie acessos e atualize as drogarias vinculadas.</p>
+        </div>
+        <button class="gemini-icon-button" id="adminUsersCloseBtn" type="button" aria-label="Fechar painel administrativo">✕</button>
+      </div>
+
+      <div class="admin-stats-row">
+        <div class="admin-stat-box stat-pending">
+          <span class="stat-number" id="statPendingCount">0</span>
+          <span class="stat-label">⏳ Pendentes</span>
+        </div>
+        <div class="admin-stat-box stat-approved">
+          <span class="stat-number" id="statApprovedCount">0</span>
+          <span class="stat-label">✅ Aprovados</span>
+        </div>
+        <div class="admin-stat-box stat-total">
+          <span class="stat-number" id="statTotalCount">0</span>
+          <span class="stat-label">📋 Total de Contas</span>
+        </div>
+      </div>
+
+      <div class="admin-table-container" id="adminUsersTableContainer">
+        <!-- Renderizado dinamicamente pelo app.js -->
+      </div>
     </div>
   </section>
 
