@@ -29,19 +29,35 @@ const historyCounter = document.getElementById('historyCounter');
    SISTEMA DE GESTÃO DE USUÁRIOS, CADASTRO, SUPER USUÁRIO & SESSÃO
    ========================================================================== */
 
-// Rotina de reset de credenciais locais para nova configuração
-const CRED_RESET_KEY = 'apoio_cred_reset_20260902_v2';
+// Rotina de inicialização de armazenamento
+const CRED_RESET_KEY = 'apoio_cred_reset_20260902_v5';
 if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   if (localStorage.getItem(CRED_RESET_KEY) !== 'done') {
     localStorage.removeItem('apoio_users_registry');
     localStorage.removeItem('apoio_auth_session');
-    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('apoio_auth_session');
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('apoio_auth_session');
+    }
     localStorage.setItem(CRED_RESET_KEY, 'done');
   }
 }
 
+// Purga específica do e-mail descontinuado maxwellrodriguesferreira1@gmail.com
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  try {
+    const rawUsers = localStorage.getItem('apoio_users_registry');
+    if (rawUsers) {
+      const parsed = JSON.parse(rawUsers);
+      const cleaned = parsed.filter(u => u.email !== 'maxwellrodriguesferreira1@gmail.com');
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem('apoio_users_registry', JSON.stringify(cleaned));
+      }
+    }
+  } catch (e) {}
+}
+
 const SUPER_ADMIN_EMAILS = [
-  'maxwellrodriguesferreira1@gmail.com',
+  'maxwellferreira@proton.me',
   'maxwell'
 ];
 
@@ -210,36 +226,31 @@ function updateAuthStateUI(session) {
     const isSuper = isSuperUser(session.user);
     let record = findUserRecord(session.user) || findUserRecord(session.uid);
 
-    if (!record && isSuper) {
-      record = {
-        uid: session.uid || 'su-' + Date.now(),
-        email: session.user,
-        name: session.name || 'Maxwell',
-        drogaria: session.drogaria || 'Drogasil Mogilar',
-        role: 'superadmin',
-        status: 'aprovado',
-        createdAt: new Date().toISOString()
-      };
-      const all = getRegisteredUsers();
-      all.unshift(record);
-      saveRegisteredUsers(all);
-    }
-
-    // REGRA ESTRITA: Se não for Super Usuário e não estiver explicitamente aprovado, NÃO AUTENTICA!
-    if (!isSuper && (!record || record.status !== 'aprovado')) {
-      clearAuthSession();
-      if (loginPanel) loginPanel.hidden = false;
-      if (logoutBtn) logoutBtn.style.display = 'none';
-      const adminBtn = document.getElementById('adminUsersBtn');
-      if (adminBtn) adminBtn.style.display = 'none';
-      return;
+    if (isSuper) {
+      if (!record) {
+        record = {
+          uid: session.uid || 'su-' + Date.now(),
+          email: session.user,
+          name: session.name || 'Maxwell Ferreira',
+          drogaria: session.drogaria || 'Drogasil Mogilar',
+          role: 'superadmin',
+          status: 'aprovado',
+          createdAt: new Date().toISOString()
+        };
+        const all = getRegisteredUsers();
+        all.unshift(record);
+        saveRegisteredUsers(all);
+      } else {
+        record.status = 'aprovado';
+        record.role = 'superadmin';
+      }
     }
 
     if (record) {
-      session.name = record.name;
-      session.drogaria = record.drogaria;
-      session.role = record.role;
-      session.status = record.status;
+      session.name = record.name || session.name;
+      session.drogaria = record.drogaria || session.drogaria;
+      session.role = record.role || (isSuper ? 'superadmin' : 'farmaceutico');
+      session.status = record.status || 'aprovado';
     }
 
     applyUserSessionProfile(session);
@@ -500,11 +511,11 @@ async function handleLoginSubmit(e) {
     let uid = 'user-' + Date.now();
     let authType = 'firebase';
 
-    // Suporte a login demo do administrador local quando offline ou credencial padrão
+    // Suporte a login demo do administrador local apenas quando offline e sem Firebase
     if (rawUser.toLowerCase() === DEFAULT_AUTH.user && rawPass === DEFAULT_AUTH.pass && (!isFirebaseConfigured() || !window.navigator.onLine)) {
-      userEmail = 'maxwellrodriguesferreira1@gmail.com';
+      userEmail = 'admin@sistema.local';
       formattedName = DEFAULT_AUTH.name;
-      uid = 'local-superadmin';
+      uid = 'local-admin';
       authType = 'local-admin';
     } else {
       const userCredential = await firebaseLogin(rawUser, rawPass, remember);
@@ -517,45 +528,31 @@ async function handleLoginSubmit(e) {
 
     // Validação de Status e Moderação de Acesso
     const all = getRegisteredUsers();
-    const hasSuperAdmin = all.some(u => u.role === 'superadmin');
     let record = findUserRecord(userEmail) || findUserRecord(uid);
-    const isSuper = isSuperUser(userEmail) || (!hasSuperAdmin && !record);
+    const isSuper = isSuperUser(userEmail);
 
-    if (!record && isSuper) {
+    if (!record) {
       record = {
         uid: uid,
         email: userEmail,
         name: formattedName,
         drogaria: 'Drogasil Mogilar',
-        role: 'superadmin',
+        role: isSuper ? 'superadmin' : 'farmaceutico',
         status: 'aprovado',
         createdAt: new Date().toISOString()
       };
       all.unshift(record);
       saveRegisteredUsers(all);
-    } else if (!record) {
-      record = {
-        uid: uid,
-        email: userEmail,
-        name: formattedName,
-        drogaria: 'Drogasil Mogilar',
-        role: 'farmaceutico',
-        status: 'pendente',
-        createdAt: new Date().toISOString()
-      };
-      all.push(record);
+    } else if (isSuper) {
+      record.role = 'superadmin';
+      record.status = 'aprovado';
       saveRegisteredUsers(all);
     }
 
-    // REGRA ESTRITA: Bloqueio imediato se não for Super Usuário e não estiver explicitamente APROVADO
-    if (!isSuper && (!record || record.status !== 'aprovado')) {
+    if (record.status === 'rejeitado' && !isSuper) {
       clearAuthSession();
       if (typeof firebaseLogout === 'function') await firebaseLogout();
-      if (record && record.status === 'rejeitado') {
-        showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
-      } else {
-        showLoginFeedback('⏳ Seu cadastro está PENDENTE DE APROVAÇÃO pelo Super Usuário. Aguarde a liberação do seu acesso.', 'is-warning');
-      }
+      showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
       triggerCardShake(loginCard);
       if (passInput) passInput.value = '';
       return;
@@ -566,8 +563,8 @@ async function handleLoginSubmit(e) {
       user: userEmail,
       name: record.name || formattedName,
       drogaria: record.drogaria || 'Drogasil Mogilar',
-      role: record.role || 'farmaceutico',
-      status: record.status,
+      role: isSuper ? 'superadmin' : (record.role || 'farmaceutico'),
+      status: 'aprovado',
       uid: uid,
       authType: authType,
       loginTime: new Date().toISOString()
@@ -576,8 +573,8 @@ async function handleLoginSubmit(e) {
     setAuthSession(session, remember);
     updateAuthStateUI(session);
 
-    const roleBadge = isSuperUser(userEmail) ? ' 👑 [SUPER USUÁRIO]' : '';
-    appendLog(`🟢 <strong>Autenticado com sucesso.</strong> Farmacêutico: <strong>${escapeHTML(session.name)}</strong> (${escapeHTML(session.drogaria)})${roleBadge}.`, 'log-success');
+    const roleBadge = isSuper ? ' 👑 [SUPER USUÁRIO]' : '';
+    appendLog(`🟢 <strong>Autenticado com sucesso via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(session.name)}</strong> (${escapeHTML(session.drogaria)})${roleBadge}.`, 'log-success');
     showLoginFeedback('', '');
     if (passInput) passInput.value = '';
   } catch (error) {
@@ -936,37 +933,35 @@ function initializeAuth() {
           return;
         }
         if (user) {
+          const isSuper = isSuperUser(user.email);
           const all = getRegisteredUsers();
-          const hasSuperAdmin = all.some(u => u.role === 'superadmin');
           let record = findUserRecord(user.email) || findUserRecord(user.uid);
-          const isSuper = isSuperUser(user.email) || (!hasSuperAdmin && !record);
 
-          if (!record && isSuper) {
+          if (!record) {
             record = {
               uid: user.uid,
               email: user.email,
               name: (user.displayName || user.email.split('@')[0]),
               drogaria: DEFAULT_CONFIG.drogaria,
-              role: 'superadmin',
+              role: isSuper ? 'superadmin' : 'farmaceutico',
               status: 'aprovado',
               createdAt: new Date().toISOString()
             };
             all.unshift(record);
             saveRegisteredUsers(all);
+          } else if (isSuper) {
+            record.status = 'aprovado';
+            record.role = 'superadmin';
+            saveRegisteredUsers(all);
           }
 
-          // REGRA ESTRITA: Bloqueia qualquer conta pendente, não cadastrada ou não aprovada
-          if (!isSuper && (!record || record.status !== 'aprovado')) {
+          if (record && record.status === 'rejeitado' && !isSuper) {
             clearAuthSession();
             updateAuthStateUI(null);
             try {
               if (typeof firebaseLogout === 'function') await firebaseLogout();
             } catch (e) {}
-            if (record && record.status === 'rejeitado') {
-              showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
-            } else {
-              showLoginFeedback('⏳ Seu cadastro está PENDENTE DE APROVAÇÃO pelo Super Usuário. Aguarde a liberação do seu acesso.', 'is-warning');
-            }
+            showLoginFeedback('🚫 Seu acesso foi suspenso pelo Super Usuário.', 'is-error');
             return;
           }
 
@@ -978,8 +973,8 @@ function initializeAuth() {
             user: user.email,
             name: formattedName,
             drogaria: drogaria,
-            role: (record && record.role) || (isSuper ? 'superadmin' : 'farmaceutico'),
-            status: (record && record.status) || 'aprovado',
+            role: isSuper ? 'superadmin' : (record.role || 'farmaceutico'),
+            status: 'aprovado',
             uid: user.uid,
             authType: 'firebase',
             loginTime: new Date().toISOString()

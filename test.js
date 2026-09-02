@@ -199,14 +199,14 @@ const testContext = {
     getElementById(id) { return domMock[id] || null; }
   },
   DEFAULT_CONFIG: { drogaria: 'Drogasil Mogilar', farmaceutico: 'Maxwell' },
-  SUPER_ADMIN_EMAILS: ['maxwellrodriguesferreira1@gmail.com', 'maxwell'],
+  SUPER_ADMIN_EMAILS: ['maxwellferreira@proton.me', 'maxwell'],
   USERS_STORAGE_KEY: 'apoio_users_registry'
 };
 
 const userFuncs = `
 function getDefaultRegisteredUsers() {
   return [
-    { uid: 'su-1', email: 'maxwellrodriguesferreira1@gmail.com', name: 'Maxwell', drogaria: 'Drogasil Mogilar', role: 'superadmin', status: 'aprovado' },
+    { uid: 'su-1', email: 'maxwellferreira@proton.me', name: 'Maxwell Ferreira', drogaria: 'Drogasil Mogilar', role: 'superadmin', status: 'aprovado' },
     { uid: 'su-2', email: 'maxwell', name: 'Maxwell', drogaria: 'Drogasil Mogilar', role: 'superadmin', status: 'aprovado' }
   ];
 }
@@ -271,7 +271,7 @@ function approveUserAction(email) {
 vm.runInNewContext(userFuncs, testContext);
 
 // 1. Validação de Super Usuário inicial
-if (!testContext.isSuperUser('maxwellrodriguesferreira1@gmail.com') || !testContext.isSuperUser('maxwell')) {
+if (!testContext.isSuperUser('maxwellferreira@proton.me') || !testContext.isSuperUser('maxwell')) {
   throw new Error('Falha no teste: Maxwell deve ser reconhecido como Super Usuário.');
 }
 
@@ -336,7 +336,7 @@ function deleteUserTest(email) {
 }
 
 // 5.1 Tentativa de deletar o Super Usuário deve ser rejeitada
-const delSuperUserAttempt = deleteUserTest('maxwellrodriguesferreira1@gmail.com');
+const delSuperUserAttempt = deleteUserTest('maxwellferreira@proton.me');
 if (delSuperUserAttempt.success || delSuperUserAttempt.reason !== 'SUPER_USER_PROTECTED') {
   throw new Error('Falha no teste: Super Usuário não pode ser deletado.');
 }

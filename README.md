@@ -26,7 +26,7 @@ Aplicação web estática com interface de terminal/CRT para auxiliar na redaç�
   - Toda nova conta é registrada no sistema com status inicial **`pendente`**.
   - O sistema **impede qualquer autenticação** de contas pendentes ou recusadas, desconectando imediatamente sessões não autorizadas e exibindo aviso orientativo.
 - **Painel Administrativo do Super Usuário**:
-  - Usuários raiz pré-definidos: `maxwellrodriguesferreira1@gmail.com` e usuário local `maxwell`.
+  - Usuário Super Administrador pré-definido: `maxwellferreira@proton.me` e usuário local `maxwell`.
   - Ao autenticar como Super Usuário, o botão **`👥 Farmacêuticos`** exibe um contador em tempo real de cadastros pendentes.
   - Painel com listagem completa, contadores estatísticos e ações com 1 clique: **`✅ Aprovar`**, **`❌ Recusar`**, **`✏️ Editar`** e **`🗑️ Remover`**.
 
