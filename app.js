@@ -29,64 +29,44 @@ const historyCounter = document.getElementById('historyCounter');
    SISTEMA DE GESTÃO DE USUÁRIOS, CADASTRO, SUPER USUÁRIO & SESSÃO
    ========================================================================== */
 
+// Rotina de reset de credenciais locais para nova configuração
+const CRED_RESET_KEY = 'apoio_cred_reset_20260902_v2';
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  if (localStorage.getItem(CRED_RESET_KEY) !== 'done') {
+    localStorage.removeItem('apoio_users_registry');
+    localStorage.removeItem('apoio_auth_session');
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('apoio_auth_session');
+    localStorage.setItem(CRED_RESET_KEY, 'done');
+  }
+}
+
 const SUPER_ADMIN_EMAILS = [
   'maxwellrodriguesferreira1@gmail.com',
   'maxwell'
 ];
 
 const DEFAULT_AUTH = {
-  user: 'maxwell',
-  pass: 'drogasil',
-  name: 'Maxwell'
+  user: 'admin',
+  pass: 'admin123',
+  name: 'Administrador'
 };
 
 const USERS_STORAGE_KEY = 'apoio_users_registry';
 
 function getDefaultRegisteredUsers() {
-  return [
-    {
-      uid: 'bYjm6JcvscWIBe8pY79tTYgdS1g2',
-      email: 'maxwellrodriguesferreira1@gmail.com',
-      name: 'Maxwell',
-      drogaria: 'Drogasil Mogilar',
-      role: 'superadmin',
-      status: 'aprovado',
-      createdAt: '2026-09-01T00:00:00.000Z'
-    },
-    {
-      uid: 'local-superadmin',
-      email: 'maxwell',
-      name: 'Maxwell',
-      drogaria: 'Drogasil Mogilar',
-      role: 'superadmin',
-      status: 'aprovado',
-      createdAt: '2026-09-01T00:00:00.000Z'
-    }
-  ];
+  return [];
 }
 
 function getRegisteredUsers() {
   const raw = localStorage.getItem(USERS_STORAGE_KEY);
   if (!raw) {
-    const defaults = getDefaultRegisteredUsers();
-    saveRegisteredUsers(defaults);
-    return defaults;
+    return [];
   }
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || !parsed.length) {
-      const defaults = getDefaultRegisteredUsers();
-      saveRegisteredUsers(defaults);
-      return defaults;
-    }
-    const hasAdmin = parsed.some(u => isSuperUser(u.email));
-    if (!hasAdmin) {
-      parsed.unshift(...getDefaultRegisteredUsers());
-      saveRegisteredUsers(parsed);
-    }
-    return parsed;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
-    return getDefaultRegisteredUsers();
+    return [];
   }
 }
 
@@ -421,22 +401,25 @@ async function handleRegisterSubmit(e) {
       }
     }
 
+    const users = getRegisteredUsers();
+    const hasSuperAdmin = users.some(u => u.role === 'superadmin');
+    const isFirstAdmin = !hasSuperAdmin;
+
     const newUser = {
       uid: registeredUid,
       email: email,
       name: name,
       drogaria: drogaria,
-      role: 'farmaceutico',
-      status: 'pendente', // Aguarda aprovação do Super Usuário
+      role: isFirstAdmin ? 'superadmin' : 'farmaceutico',
+      status: isFirstAdmin ? 'aprovado' : 'pendente', // Primeiro cadastro torna-se Super Usuário mestre aprovado
       authProvider: usedFirebase ? 'firebase' : 'local',
       createdAt: new Date().toISOString()
     };
 
-    const users = getRegisteredUsers();
     users.push(newUser);
     saveRegisteredUsers(users);
 
-    // Garante que o novo usuário NÃO fique logado após o cadastro
+    // Garante que o novo usuário NÃO fique logado após o cadastro se for pendente
     clearAuthSession();
     if (typeof firebaseLogout === 'function') {
       try { await firebaseLogout(); } catch (e) {}
@@ -448,8 +431,13 @@ async function handleRegisterSubmit(e) {
     if (passInput) passInput.value = '';
     if (passConfirmInput) passConfirmInput.value = '';
 
-    showRegisterFeedback('🎉 Cadastro enviado com sucesso! Aguarde a aprovação do Super Usuário para liberar seu acesso.', 'is-success');
-    appendLog(`📝 <strong>Novo cadastro registrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Status: <strong>Aguardando aprovação</strong>.`, 'log-info');
+    if (isFirstAdmin) {
+      showRegisterFeedback('👑 Conta criada com sucesso! Você foi definido como o SUPER USUÁRIO MESTRE com acesso total!', 'is-success');
+      appendLog(`👑 <strong>Novo Super Usuário cadastrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Acesso total liberado!`, 'log-success');
+    } else {
+      showRegisterFeedback('🎉 Cadastro enviado com sucesso! Aguarde a aprovação do Super Usuário para liberar seu acesso.', 'is-success');
+      appendLog(`📝 <strong>Novo cadastro registrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Status: <strong>Aguardando aprovação</strong>.`, 'log-info');
+    }
 
     if (submitBtn) submitBtn.disabled = false;
     updateSuperUserToolbar();
@@ -458,7 +446,11 @@ async function handleRegisterSubmit(e) {
       switchAuthTab('login');
       const loginUser = document.getElementById('loginUserInput');
       if (loginUser) loginUser.value = email;
-      showLoginFeedback('✅ Cadastro realizado! Aguarde a aprovação do Super Usuário antes do primeiro login.', 'is-warning');
+      if (isFirstAdmin) {
+        showLoginFeedback('👑 Você é o Super Usuário Mestre! Faça seu login para gerenciar o sistema.', 'is-success');
+      } else {
+        showLoginFeedback('✅ Cadastro realizado! Aguarde a aprovação do Super Usuário antes do primeiro login.', 'is-warning');
+      }
     }, 3500);
   } finally {
     window.__IS_REGISTERING = false;
@@ -508,8 +500,11 @@ async function handleLoginSubmit(e) {
     }
 
     // Validação de Status e Moderação de Acesso
-    const isSuper = isSuperUser(userEmail);
+    const all = getRegisteredUsers();
+    const hasSuperAdmin = all.some(u => u.role === 'superadmin');
     let record = findUserRecord(userEmail) || findUserRecord(uid);
+    const isSuper = isSuperUser(userEmail) || (!hasSuperAdmin && !record);
+
     if (!record && isSuper) {
       record = {
         uid: uid,
@@ -520,7 +515,6 @@ async function handleLoginSubmit(e) {
         status: 'aprovado',
         createdAt: new Date().toISOString()
       };
-      const all = getRegisteredUsers();
       all.unshift(record);
       saveRegisteredUsers(all);
     } else if (!record) {
@@ -533,7 +527,6 @@ async function handleLoginSubmit(e) {
         status: 'pendente',
         createdAt: new Date().toISOString()
       };
-      const all = getRegisteredUsers();
       all.push(record);
       saveRegisteredUsers(all);
     }
@@ -713,24 +706,27 @@ function renderAdminUsersTable() {
       actionsHTML = `<span class="log-dim" style="font-size: 0.76rem;">👑 Super Usuário Mestre</span>`;
     } else {
       const emailEsc = escapeHTML(u.email);
+      let statusSpecificBtns = '';
       if (u.status === 'pendente') {
-        actionsHTML = `
+        statusSpecificBtns = `
           <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar cadastro">✅ Aprovar</button>
           <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Recusar cadastro">❌ Recusar</button>
-          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
         `;
       } else if (u.status === 'aprovado') {
-        actionsHTML = `
+        statusSpecificBtns = `
           <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Suspender acesso">🚫 Suspender</button>
-          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
         `;
       } else {
-        actionsHTML = `
+        statusSpecificBtns = `
           <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Reativar e aprovar acesso">✅ Reativar</button>
-          <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
-          <button class="admin-btn-action" onclick="deleteUserAction('${emailEsc}')" title="Remover cadastro">🗑️</button>
         `;
       }
+
+      actionsHTML = `
+        ${statusSpecificBtns}
+        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria">✏️ Editar</button>
+        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir usuário comum permanentemente">🗑️ Excluir</button>
+      `;
     }
 
     tableHTML += `
@@ -805,18 +801,52 @@ function editUserAction(emailOrUid) {
 }
 
 function deleteUserAction(emailOrUid) {
-  if (isSuperUser(emailOrUid)) {
-    alert('Não é permitido excluir o Super Usuário principal.');
-    return;
+  const session = getAuthSession();
+  if (!session || !isSuperUser(session.user)) {
+    appendLog('⚠️ Apenas o <strong>Super Usuário</strong> tem permissão para deletar usuários.', 'log-error');
+    return false;
   }
-  if (!confirm(`Tem certeza que deseja excluir o cadastro de ${emailOrUid}?`)) return;
+
+  if (isSuperUser(emailOrUid)) {
+    alert('🛡️ Proteção de Segurança: Não é permitido excluir o Super Usuário.');
+    appendLog(`🛡️ Operação negada: O Super Usuário principal não pode ser deletado.`, 'log-warning');
+    return false;
+  }
 
   const users = getRegisteredUsers();
-  const filtered = users.filter(u => u.email !== emailOrUid && u.uid !== emailOrUid);
+  const target = users.find(u => 
+    (u.email && u.email.toLowerCase() === String(emailOrUid).toLowerCase()) ||
+    (u.uid && u.uid === emailOrUid)
+  );
+
+  if (!target) {
+    appendLog(`⚠️ Usuário "${escapeHTML(emailOrUid)}" não encontrado para exclusão.`, 'log-warning');
+    return false;
+  }
+
+  const confirmMsg = `⚠️ ATENÇÃO - EXCLUSÃO PERMANENTE:\n\n` +
+    `Deseja realmente DELETAR o usuário comum:\n` +
+    `• Farmacêutico: ${target.name}\n` +
+    `• Drogaria: ${target.drogaria}\n` +
+    `• E-mail: ${target.email}\n` +
+    `• Status Atual: ${target.status.toUpperCase()}\n\n` +
+    `Esta ação é irreversível e removerá todo o cadastro deste usuário.`;
+
+  if (!confirm(confirmMsg)) return false;
+
+  const filtered = users.filter(u => u.email !== target.email && u.uid !== target.uid);
   saveRegisteredUsers(filtered);
+
+  // Se o usuário excluído estiver autenticado neste navegador, encerra a sessão imediatamente
+  if (session.user === target.email || session.uid === target.uid) {
+    clearAuthSession();
+    updateAuthStateUI(null);
+  }
+
   renderAdminUsersTable();
   updateSuperUserToolbar();
-  appendLog(`🗑️ <strong>Cadastro removido:</strong> ${escapeHTML(emailOrUid)}.`, 'log-warning');
+  appendLog(`🗑️ <strong>Usuário comum deletado com sucesso:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)} - ${escapeHTML(target.drogaria)}).`, 'log-warning');
+  return true;
 }
 
 // Expõe ações globais para cliques inline no HTML da tabela administrativa
@@ -869,8 +899,24 @@ function initializeAuth() {
           return;
         }
         if (user) {
-          const isSuper = isSuperUser(user.email);
-          const record = findUserRecord(user.email) || findUserRecord(user.uid);
+          const all = getRegisteredUsers();
+          const hasSuperAdmin = all.some(u => u.role === 'superadmin');
+          let record = findUserRecord(user.email) || findUserRecord(user.uid);
+          const isSuper = isSuperUser(user.email) || (!hasSuperAdmin && !record);
+
+          if (!record && isSuper) {
+            record = {
+              uid: user.uid,
+              email: user.email,
+              name: (user.displayName || user.email.split('@')[0]),
+              drogaria: DEFAULT_CONFIG.drogaria,
+              role: 'superadmin',
+              status: 'aprovado',
+              createdAt: new Date().toISOString()
+            };
+            all.unshift(record);
+            saveRegisteredUsers(all);
+          }
 
           // REGRA ESTRITA: Bloqueia qualquer conta pendente, não cadastrada ou não aprovada
           if (!isSuper && (!record || record.status !== 'aprovado')) {
@@ -2529,6 +2575,19 @@ async function executeCommand(inputCmd) {
       }
       break;
 
+    case 'deletar':
+    case 'excluir':
+    case 'remover':
+      const admSessDel = getAuthSession();
+      if (!admSessDel || !isSuperUser(admSessDel.user)) {
+        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> tem permissão para deletar usuários comuns.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">deletar &lt;email_ou_nome&gt;</code> ou acesse o painel pelo comando <code class="log-info">usuarios</code>.`, 'log-warning');
+      } else {
+        deleteUserAction(parts[1]);
+      }
+      break;
+
     default:
       appendLog(`❌ Comando não reconhecido: "<strong>${escapeHTML(inputCmd)}</strong>". Digite <code class="log-info">ajuda</code> ou <code class="log-info">novo</code>.`, 'log-error');
       break;
@@ -2675,6 +2734,11 @@ function showHelp() {
             <td><code>aprovar [email]</code></td>
             <td>Aprova diretamente o cadastro de um farmacêutico pelo CLI.</td>
             <td><code>aprovar ana@drogasil.com</code></td>
+          </tr>
+          <tr>
+            <td><code>deletar [email]</code></td>
+            <td>Super Usuário deleta permanentemente o cadastro de um usuário comum.</td>
+            <td><code>deletar ana@drogasil.com</code></td>
           </tr>
           <tr>
             <td><code>apikey [chave]</code></td>

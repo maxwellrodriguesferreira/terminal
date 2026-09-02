@@ -1504,6 +1504,19 @@ button, input, select, textarea, a {
   background: rgba(0, 229, 255, 0.08);
 }
 
+.admin-btn-action.btn-delete {
+  border-color: #ff3344;
+  color: #ff4d5a;
+  background: rgba(255, 51, 68, 0.1);
+}
+
+.admin-btn-action.btn-delete:hover {
+  border-color: #ff5566;
+  color: #fff;
+  background: rgba(255, 51, 68, 0.28);
+  box-shadow: 0 0 8px rgba(255, 51, 68, 0.4);
+}
+
 .admin-empty-state {
   padding: 32px 16px;
   text-align: center;

@@ -87,6 +87,7 @@ https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generat
 | `usuarios`, `farmaceuticos`, `admin` | Abre o painel do Super Usuário para aprovação de cadastros. | `usuarios` |
 | `aprovar [email]` | Aprova diretamente o cadastro de um farmacêutico pelo CLI. | `aprovar camila@drogasil.com.br` |
 | `recusar [email]` | Recusa ou suspende o cadastro de um farmacêutico pelo CLI. | `recusar camila@drogasil.com.br` |
+| `deletar [email]` | Super Usuário deleta permanentemente um usuário comum. | `deletar camila@drogasil.com.br` |
 | `ia`, `gemini`, `apikey` | Abre o painel de configurações da chave Gemini. | `ia` |
 | `ia status` / `ia remover` | Consulta ou remove a chave local do Gemini. | `ia status` |
 | `apikey [chave]` | Salva a chave do Gemini pela CLI. | `apikey AIza...` |
@@ -151,4 +152,4 @@ firebase deploy --only hosting --project terminal-apoio
 
 ## Versão
 
-**3.2.0** — Sistema de cadastro de farmacêuticos, controle de moderação e aprovação por Super Usuário, sincronização dinâmica automática de drogaria e farmacêutico e comandos administrativos na CLI.
+**3.2.1** — Sistema de cadastro de farmacêuticos, controle de moderação e aprovação por Super Usuário, exclusão segura de usuários comuns, sincronização dinâmica automática de drogaria e farmacêutico e comandos administrativos na CLI.

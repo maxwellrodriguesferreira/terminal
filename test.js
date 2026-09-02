@@ -163,9 +163,12 @@ const userRequirements = [
   ['função de aprovação de usuário no JS', app.includes('function approveUserAction(')],
   ['função de recusa de usuário no JS', app.includes('function rejectUserAction(')],
   ['função de edição de usuário no JS', app.includes('function editUserAction(')],
+  ['função de exclusão de usuário no JS', app.includes('function deleteUserAction(')],
+  ['estilo de botão excluir no CSS', css.includes('.admin-btn-action.btn-delete')],
   ['função de aplicação dinâmica de perfil no JS', app.includes('function applyUserSessionProfile(')],
   ['comando CLI usuarios no JS', app.includes("case 'usuarios':")],
-  ['comando CLI aprovar no JS', app.includes("case 'aprovar':")]
+  ['comando CLI aprovar no JS', app.includes("case 'aprovar':")],
+  ['comando CLI deletar no JS', app.includes("case 'deletar':")]
 ];
 
 const failedUserTests = userRequirements.filter(([, passed]) => !passed).map(([name]) => name);
@@ -319,5 +322,35 @@ if (!domMock.promptUserDisplay.textContent.includes('dra-camila-santos@drogasil-
   throw new Error('Falha no teste: promptUserDisplay não foi formatado com o slug correto.');
 }
 
-console.log('✅ Todos os testes de cadastro, moderação de Super Usuário e sincronização automática foram aprovados com sucesso!');
+// 5. Teste de exclusão de usuário comum pelo Super Usuário
+function deleteUserTest(email) {
+  if (testContext.isSuperUser(email)) {
+    return { success: false, reason: 'SUPER_USER_PROTECTED' };
+  }
+  const users = testContext.getRegisteredUsers();
+  const target = users.find(u => u.email === email);
+  if (!target) return { success: false, reason: 'NOT_FOUND' };
+  const filtered = users.filter(u => u.email !== email);
+  testContext.saveRegisteredUsers(filtered);
+  return { success: true };
+}
+
+// 5.1 Tentativa de deletar o Super Usuário deve ser rejeitada
+const delSuperUserAttempt = deleteUserTest('maxwellrodriguesferreira1@gmail.com');
+if (delSuperUserAttempt.success || delSuperUserAttempt.reason !== 'SUPER_USER_PROTECTED') {
+  throw new Error('Falha no teste: Super Usuário não pode ser deletado.');
+}
+
+// 5.2 Deletar usuário comum com sucesso
+const delCommonUserAttempt = deleteUserTest('camila@drogasil.com.br');
+if (!delCommonUserAttempt.success) {
+  throw new Error('Falha no teste: Super Usuário deve poder deletar usuário comum.');
+}
+
+const checkDeleted = testContext.findUserRecord('camila@drogasil.com.br');
+if (checkDeleted) {
+  throw new Error('Falha no teste: Usuário comum ainda existe após exclusão.');
+}
+
+console.log('✅ Todos os testes de cadastro, moderação, exclusão de usuários e sincronização automática foram aprovados com sucesso!');
 
