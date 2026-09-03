@@ -1340,21 +1340,28 @@ button, input, select, textarea, a {
 
 .admin-stats-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .admin-stat-box {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-stat-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .admin-stat-box.stat-pending {
@@ -1367,8 +1374,23 @@ button, input, select, textarea, a {
   background: rgba(0, 255, 65, 0.05);
 }
 
+.admin-stat-box.stat-rejected {
+  border-color: var(--error-color);
+  background: rgba(255, 68, 68, 0.05);
+}
+
+.admin-stat-box.stat-blocked {
+  border-color: #ff0055;
+  background: rgba(255, 0, 85, 0.05);
+}
+
+.admin-stat-box.stat-total {
+  border-color: var(--accent-color);
+  background: rgba(0, 229, 255, 0.05);
+}
+
 .stat-number {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 800;
   font-family: var(--font-mono);
   color: var(--text-bright);
@@ -1383,10 +1405,108 @@ button, input, select, textarea, a {
   color: var(--prompt-color);
 }
 
+.admin-stat-box.stat-rejected .stat-number {
+  color: var(--error-color);
+}
+
+.admin-stat-box.stat-blocked .stat-number {
+  color: #ff0055;
+}
+
+.admin-stat-box.stat-total .stat-number {
+  color: var(--accent-color);
+}
+
 .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-dim);
   margin-top: 4px;
+}
+
+/* Barra de controles: busca e abas de filtro */
+.admin-controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.admin-search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.admin-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 30px 7px 12px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-bright);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.admin-search-input:focus {
+  border-color: var(--prompt-color);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+}
+
+.admin-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 4px;
+}
+
+.admin-search-clear:hover {
+  color: var(--error-color);
+}
+
+.admin-filter-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.admin-filter-btn {
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.admin-filter-btn:hover {
+  color: var(--text-bright);
+  border-color: var(--text-dim);
+}
+
+.admin-filter-btn.active {
+  background: rgba(0, 255, 65, 0.15);
+  border-color: var(--prompt-color);
+  color: var(--prompt-color);
+  font-weight: 700;
 }
 
 .admin-table-container {
@@ -1454,16 +1574,45 @@ button, input, select, textarea, a {
   border: 1px solid var(--error-color);
 }
 
+.status-badge.blocked {
+  background: rgba(255, 0, 85, 0.15);
+  color: #ff0055;
+  border: 1px solid #ff0055;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.role-badge.admin {
+  background: rgba(255, 215, 0, 0.12);
+  color: #ffd700;
+  border: 1px solid #ffd700;
+}
+
+.role-badge.user {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--accent-color);
+  border: 1px solid var(--accent-color);
+}
+
 .admin-actions-cell {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
   align-items: center;
 }
 
 .admin-btn-action {
   padding: 4px 8px;
-  font-size: 0.75rem;
+  font-size: 0.73rem;
   font-family: var(--font-mono);
   border-radius: 4px;
   border: 1px solid var(--border-color);
@@ -1498,10 +1647,51 @@ button, input, select, textarea, a {
   background: rgba(255, 68, 68, 0.22);
 }
 
-.admin-btn-action.btn-edit {
+.admin-btn-action.btn-block {
+  border-color: #ff0055;
+  color: #ff0055;
+  background: rgba(255, 0, 85, 0.08);
+}
+
+.admin-btn-action.btn-block:hover {
+  background: rgba(255, 0, 85, 0.22);
+}
+
+.admin-btn-action.btn-unblock {
+  border-color: var(--prompt-color);
+  color: var(--prompt-color);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.admin-btn-action.btn-role {
+  border-color: #ffd700;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.admin-btn-action.btn-role:hover {
+  background: rgba(255, 215, 0, 0.22);
+}
+
+.admin-btn-action.btn-details {
   border-color: var(--accent-color);
   color: var(--accent-color);
   background: rgba(0, 229, 255, 0.08);
+}
+
+.admin-btn-action.btn-details:hover {
+  background: rgba(0, 229, 255, 0.22);
+}
+
+.admin-btn-action.btn-edit {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.admin-btn-action.btn-edit:hover {
+  color: var(--text-bright);
+  border-color: var(--text-bright);
 }
 
 .admin-btn-action.btn-delete {
@@ -1521,6 +1711,136 @@ button, input, select, textarea, a {
   padding: 32px 16px;
   text-align: center;
   color: var(--text-dim);
+}
+
+/* Modais de detalhes e rejeição */
+.admin-modal[hidden] {
+  display: none !important;
+}
+
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.85);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.admin-modal-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+.admin-modal-card {
+  position: relative;
+  width: min(600px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--prompt-color);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.95);
+  box-sizing: border-box;
+}
+
+.admin-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.admin-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-bright);
+}
+
+.admin-modal-desc {
+  font-size: 0.84rem;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.admin-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-bright);
+  resize: vertical;
+}
+
+.admin-textarea:focus {
+  outline: none;
+  border-color: var(--prompt-color);
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 14px;
+  font-size: 0.82rem;
+  margin-bottom: 16px;
+}
+
+.admin-detail-key {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.admin-detail-val {
+  color: var(--text-bright);
+  word-break: break-all;
+}
+
+.admin-audit-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.admin-audit-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  margin-bottom: 8px;
+}
+
+.admin-audit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.76rem;
+}
+
+.admin-audit-item {
+  background: var(--bg-card);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border-left: 3px solid var(--prompt-color);
+  color: var(--text-main);
 }
 
 /* ==========================================================================

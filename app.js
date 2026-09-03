@@ -58,7 +58,8 @@ if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
 
 const SUPER_ADMIN_EMAILS = [
   'maxwellferreira@proton.me',
-  'maxwell'
+  'maxwell',
+  'admin@sistema.local'
 ];
 
 const DEFAULT_AUTH = {
@@ -69,18 +70,37 @@ const DEFAULT_AUTH = {
 
 const USERS_STORAGE_KEY = 'apoio_users_registry';
 
-function getDefaultRegisteredUsers() {
-  return [];
+// Normalização padronizada de Status e Roles
+function normalizeStatus(status) {
+  if (!status) return 'pending';
+  const s = String(status).toLowerCase().trim();
+  if (s === 'approved' || s === 'aprovado') return 'approved';
+  if (s === 'rejected' || s === 'rejeitado' || s === 'recusado') return 'rejected';
+  if (s === 'blocked' || s === 'bloqueado' || s === 'suspenso') return 'blocked';
+  return 'pending';
+}
+
+function normalizeRole(role) {
+  if (!role) return 'user';
+  const r = String(role).toLowerCase().trim();
+  if (r === 'admin' || r === 'superadmin' || r === 'administrador') return 'admin';
+  return 'user';
 }
 
 function getRegisteredUsers() {
-  const raw = localStorage.getItem(USERS_STORAGE_KEY);
+  const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(USERS_STORAGE_KEY) : null;
   if (!raw) {
     return [];
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(u => ({
+      ...u,
+      status: normalizeStatus(u.status),
+      role: normalizeRole(u.role),
+      auditLog: Array.isArray(u.auditLog) ? u.auditLog : []
+    }));
   } catch (e) {
     return [];
   }
@@ -88,7 +108,9 @@ function getRegisteredUsers() {
 
 function saveRegisteredUsers(users) {
   try {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    }
   } catch (e) {
     console.warn('Erro ao salvar registro de usuários:', e);
   }
@@ -108,8 +130,7 @@ function findUserRecord(emailOrUidOrName) {
 function getSuperAdminUser() {
   const users = getRegisteredUsers();
   if (!users.length) return null;
-  // O primeiro usuário cadastrado (ou com role superadmin) é sempre o Super Usuário Mestre
-  return users.find(u => u.role === 'superadmin') || users[0];
+  return users.find(u => u.role === 'admin' || u.role === 'superadmin' || SUPER_ADMIN_EMAILS.includes(u.email)) || users[0];
 }
 
 function isSuperUser(emailOrUid) {
@@ -117,16 +138,37 @@ function isSuperUser(emailOrUid) {
   const term = String(emailOrUid).trim().toLowerCase();
   if (SUPER_ADMIN_EMAILS.includes(term)) return true;
 
-  const superUser = getSuperAdminUser();
-  if (superUser) {
-    if ((superUser.email && superUser.email.toLowerCase() === term) ||
-        (superUser.uid && superUser.uid === term)) {
-      return true;
-    }
+  const session = getAuthSession();
+  if (session && (session.user === term || session.uid === term) && (session.role === 'admin' || session.role === 'superadmin')) {
+    return true;
   }
 
   const record = findUserRecord(term);
-  return Boolean(record && record.role === 'superadmin');
+  if (record && (record.role === 'admin' || record.role === 'superadmin')) {
+    return true;
+  }
+
+  const superUser = getSuperAdminUser();
+  if (superUser && ((superUser.email && superUser.email.toLowerCase() === term) || (superUser.uid && superUser.uid === term))) {
+    return true;
+  }
+
+  return false;
+}
+
+function addAuditLogEntry(targetUser, action, details, adminEmailOrUid = null) {
+  if (!targetUser) return;
+  if (!Array.isArray(targetUser.auditLog)) {
+    targetUser.auditLog = [];
+  }
+  const session = getAuthSession();
+  const adminActor = adminEmailOrUid || (session ? (session.user || session.uid) : 'sistema');
+  targetUser.auditLog.unshift({
+    action: action,
+    performedBy: adminActor,
+    timestamp: new Date().toISOString(),
+    details: details || ''
+  });
 }
 
 function formatSlug(str, defaultVal = 'user') {
@@ -157,7 +199,7 @@ function applyUserSessionProfile(userData) {
   const statusDrogariaDisplay = document.getElementById('statusDrogariaDisplay');
   const headerTerminalTitle = document.getElementById('headerTerminalTitle');
 
-  const userSlug = formatSlug(name, 'farmaceutico');
+  const userSlug = formatSlug(name, 'usuario');
   const drogariaSlug = formatSlug(drogaria, 'drogaria');
 
   if (promptUserDisplay) promptUserDisplay.textContent = `${userSlug}@${drogariaSlug}`;
@@ -177,16 +219,23 @@ function applyUserSessionProfile(userData) {
 }
 
 function getAuthSession() {
+  if (typeof sessionStorage === 'undefined' || typeof localStorage === 'undefined') return null;
   const sessionStr = sessionStorage.getItem('apoio_auth_session') || localStorage.getItem('apoio_auth_session');
   if (!sessionStr) return null;
   try {
-    return JSON.parse(sessionStr);
+    const s = JSON.parse(sessionStr);
+    if (s) {
+      s.status = normalizeStatus(s.status);
+      s.role = normalizeRole(s.role);
+    }
+    return s;
   } catch (e) {
     return null;
   }
 }
 
 function setAuthSession(userData, remember) {
+  if (typeof sessionStorage === 'undefined' || typeof localStorage === 'undefined') return;
   const dataStr = JSON.stringify(userData);
   if (remember) {
     localStorage.setItem('apoio_auth_session', dataStr);
@@ -196,8 +245,8 @@ function setAuthSession(userData, remember) {
 }
 
 function clearAuthSession() {
-  sessionStorage.removeItem('apoio_auth_session');
-  localStorage.removeItem('apoio_auth_session');
+  if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('apoio_auth_session');
+  if (typeof localStorage !== 'undefined') localStorage.removeItem('apoio_auth_session');
 }
 
 function updateSuperUserToolbar() {
@@ -208,7 +257,7 @@ function updateSuperUserToolbar() {
   if (session && isSuperUser(session.user)) {
     if (adminBtn) adminBtn.style.display = 'inline-flex';
     const users = getRegisteredUsers();
-    const pendingCount = users.filter(u => u.status === 'pendente').length;
+    const pendingCount = users.filter(u => normalizeStatus(u.status) === 'pending').length;
     if (badge) {
       badge.textContent = pendingCount;
       badge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
@@ -229,28 +278,37 @@ function updateAuthStateUI(session) {
     if (isSuper) {
       if (!record) {
         record = {
-          uid: session.uid || 'su-' + Date.now(),
+          uid: session.uid || 'admin-' + Date.now(),
           email: session.user,
           name: session.name || 'Maxwell Ferreira',
           drogaria: session.drogaria || 'Drogasil Mogilar',
-          role: 'superadmin',
-          status: 'aprovado',
-          createdAt: new Date().toISOString()
+          role: 'admin',
+          status: 'approved',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          approvedAt: new Date().toISOString(),
+          approvedBy: session.uid || 'bootstrap',
+          rejectedAt: null,
+          rejectedBy: null,
+          blockedAt: null,
+          blockedBy: null,
+          rejectionReason: null,
+          auditLog: [{ action: 'BOOTSTRAP', performedBy: 'sistema', timestamp: new Date().toISOString(), details: 'Administrador mestre inicial' }]
         };
         const all = getRegisteredUsers();
         all.unshift(record);
         saveRegisteredUsers(all);
       } else {
-        record.status = 'aprovado';
-        record.role = 'superadmin';
+        record.status = 'approved';
+        record.role = 'admin';
       }
     }
 
     if (record) {
       session.name = record.name || session.name;
       session.drogaria = record.drogaria || session.drogaria;
-      session.role = record.role || (isSuper ? 'superadmin' : 'farmaceutico');
-      session.status = record.status || 'aprovado';
+      session.role = normalizeRole(record.role || (isSuper ? 'admin' : 'user'));
+      session.status = normalizeStatus(record.status || 'approved');
     }
 
     applyUserSessionProfile(session);
@@ -308,8 +366,8 @@ function switchAuthTab(tab) {
     if (tabRegisterBtn) { tabRegisterBtn.classList.add('active'); tabRegisterBtn.setAttribute('aria-selected', 'true'); }
     if (loginForm) loginForm.style.display = 'none';
     if (registerForm) registerForm.style.display = 'block';
-    if (loginBadge) loginBadge.textContent = '📝 NOVO CADASTRO';
-    if (noticeContent) noticeContent.textContent = 'Preencha seus dados para solicitar acesso do farmacêutico ao terminal.';
+    if (loginBadge) loginBadge.textContent = '📝 SOLICITAÇÃO DE ACESSO';
+    if (noticeContent) noticeContent.textContent = 'Preencha seus dados para solicitar cadastro. O acesso depende de aprovação administrativa.';
     const regName = document.getElementById('regNameInput');
     setTimeout(() => regName?.focus(), 50);
   } else {
@@ -318,7 +376,7 @@ function switchAuthTab(tab) {
     if (registerForm) registerForm.style.display = 'none';
     if (loginForm) loginForm.style.display = 'block';
     if (loginBadge) loginBadge.textContent = '🔒 ACESSO RESTRITO';
-    if (noticeContent) noticeContent.textContent = 'Autenticação necessária para acessar prontuários e geração de mensagens.';
+    if (noticeContent) noticeContent.textContent = 'Autenticação obrigatória. Apenas usuários aprovados podem acessar prontuários e recursos.';
     const userInput = document.getElementById('loginUserInput');
     setTimeout(() => userInput?.focus(), 50);
   }
@@ -361,12 +419,12 @@ async function handleRegisterSubmit(e) {
   const loginCard = document.querySelector('.login-card');
 
   const name = nameInput?.value.trim();
-  const drogaria = drogariaInput?.value.trim();
+  const drogaria = drogariaInput?.value.trim() || 'Drogasil Mogilar';
   const email = emailInput?.value.trim().toLowerCase();
   const pass = passInput?.value;
   const passConfirm = passConfirmInput?.value;
 
-  if (!name || !drogaria || !email || !pass || !passConfirm) {
+  if (!name || !email || !pass || !passConfirm) {
     showRegisterFeedback('⚠️ Por favor, preencha todos os campos obrigatórios.', 'is-error');
     triggerCardShake(loginCard);
     return;
@@ -392,13 +450,13 @@ async function handleRegisterSubmit(e) {
 
   const existing = findUserRecord(email);
   if (existing) {
-    showRegisterFeedback(`⚠️ O e-mail "${email}" já possui cadastro (Status: ${existing.status.toUpperCase()}).`, 'is-error');
+    showRegisterFeedback(`⚠️ O e-mail "${email}" já possui cadastro (Status: ${normalizeStatus(existing.status).toUpperCase()}).`, 'is-error');
     triggerCardShake(loginCard);
     return;
   }
 
   if (submitBtn) submitBtn.disabled = true;
-  showRegisterFeedback('🔄 Criando cadastro do farmacêutico...', 'is-warning');
+  showRegisterFeedback('🔄 Criando cadastro do usuário...', 'is-warning');
 
   window.__IS_REGISTERING = true;
   let registeredUid = 'user-' + Date.now();
@@ -429,24 +487,49 @@ async function handleRegisterSubmit(e) {
     }
 
     const users = getRegisteredUsers();
-    const hasSuperAdmin = users.some(u => u.role === 'superadmin');
-    const isFirstAdmin = !hasSuperAdmin;
+    const isExplicitSuper = SUPER_ADMIN_EMAILS.includes(email);
+    const hasSuperAdmin = users.some(u => u.role === 'admin' || u.role === 'superadmin' || SUPER_ADMIN_EMAILS.includes(u.email));
+    const isFirstAdmin = !hasSuperAdmin || isExplicitSuper;
 
+    const nowIso = new Date().toISOString();
     const newUser = {
       uid: registeredUid,
-      email: email,
       name: name,
+      email: email,
       drogaria: drogaria,
-      role: isFirstAdmin ? 'superadmin' : 'farmaceutico',
-      status: isFirstAdmin ? 'aprovado' : 'pendente', // Primeiro cadastro torna-se Super Usuário mestre aprovado
+      role: isFirstAdmin ? 'admin' : 'user',
+      status: isFirstAdmin ? 'approved' : 'pending',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      approvedAt: isFirstAdmin ? nowIso : null,
+      approvedBy: isFirstAdmin ? registeredUid : null,
+      rejectedAt: null,
+      rejectedBy: null,
+      blockedAt: null,
+      blockedBy: null,
+      rejectionReason: null,
       authProvider: usedFirebase ? 'firebase' : 'local',
-      createdAt: new Date().toISOString()
+      auditLog: [{
+        action: 'REGISTRATION',
+        performedBy: email,
+        timestamp: nowIso,
+        details: isFirstAdmin ? 'Primeiro administrador mestre inicial (Acesso liberado)' : 'Cadastro solicitado - Aguardando aprovação administrativa'
+      }]
     };
+
+    // Sincroniza com Cloud Firestore se configurado
+    if (typeof firestoreSaveUser === 'function') {
+      try {
+        await firestoreSaveUser(newUser);
+      } catch (fsErr) {
+        console.warn('Aviso ao sincronizar novo usuário com Firestore:', fsErr);
+      }
+    }
 
     users.push(newUser);
     saveRegisteredUsers(users);
 
-    // Garante que o novo usuário NÃO fique logado após o cadastro se for pendente
+    // Garante que novos usuários PENDING não permaneçam com sessão aberta
     clearAuthSession();
     if (typeof firebaseLogout === 'function') {
       try { await firebaseLogout(); } catch (e) {}
@@ -459,11 +542,11 @@ async function handleRegisterSubmit(e) {
     if (passConfirmInput) passConfirmInput.value = '';
 
     if (isFirstAdmin) {
-      showRegisterFeedback('👑 Conta criada com sucesso! Você foi definido como o SUPER USUÁRIO MESTRE com acesso total!', 'is-success');
-      appendLog(`👑 <strong>Novo Super Usuário cadastrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Acesso total liberado!`, 'log-success');
+      showRegisterFeedback('👑 Conta criada com sucesso! Você foi definido como ADMINISTRADOR com acesso total.', 'is-success');
+      appendLog(`👑 <strong>Novo Administrador cadastrado:</strong> ${escapeHTML(name)} (${escapeHTML(email)}). Acesso liberado!`, 'log-success');
     } else {
-      showRegisterFeedback('🎉 Cadastro enviado com sucesso! Aguarde a aprovação do Super Usuário para liberar seu acesso.', 'is-success');
-      appendLog(`📝 <strong>Novo cadastro registrado:</strong> ${escapeHTML(name)} (${escapeHTML(drogaria)} - ${escapeHTML(email)}). Status: <strong>Aguardando aprovação</strong>.`, 'log-info');
+      showRegisterFeedback('⏳ Cadastro realizado com sucesso! Sua conta está PENDENTE e aguardando aprovação administrativa.', 'is-warning');
+      appendLog(`📝 <strong>Novo cadastro registrado:</strong> ${escapeHTML(name)} (${escapeHTML(email)}). Status: <strong>Aguardando aprovação administrativa</strong>.`, 'log-info');
     }
 
     if (submitBtn) submitBtn.disabled = false;
@@ -474,9 +557,9 @@ async function handleRegisterSubmit(e) {
       const loginUser = document.getElementById('loginUserInput');
       if (loginUser) loginUser.value = email;
       if (isFirstAdmin) {
-        showLoginFeedback('👑 Você é o Super Usuário Mestre! Faça seu login para gerenciar o sistema.', 'is-success');
+        showLoginFeedback('👑 Você é o Administrador! Faça seu login para acessar o painel.', 'is-success');
       } else {
-        showLoginFeedback('✅ Cadastro realizado! Aguarde a aprovação do Super Usuário antes do primeiro login.', 'is-warning');
+        showLoginFeedback('⏳ Cadastro pendente: Aguarde a aprovação do Administrador antes de acessar.', 'is-warning');
       }
     }, 3500);
   } finally {
@@ -502,16 +585,16 @@ async function handleLoginSubmit(e) {
   }
 
   if (submitBtn) submitBtn.disabled = true;
-  showLoginFeedback('🔄 Validando credenciais de acesso...', 'is-warning');
+  showLoginFeedback('🔄 Validando credenciais e permissões...', 'is-warning');
 
   try {
     const remember = rememberCheckbox ? rememberCheckbox.checked : true;
     let userEmail = rawUser;
-    let formattedName = 'Farmacêutico';
+    let formattedName = 'Usuário';
     let uid = 'user-' + Date.now();
     let authType = 'firebase';
 
-    // Suporte a login demo do administrador local apenas quando offline e sem Firebase
+    // Suporte a login demo local do administrador caso offline
     if (rawUser.toLowerCase() === DEFAULT_AUTH.user && rawPass === DEFAULT_AUTH.pass && (!isFirebaseConfigured() || !window.navigator.onLine)) {
       userEmail = 'admin@sistema.local';
       formattedName = DEFAULT_AUTH.name;
@@ -526,45 +609,126 @@ async function handleLoginSubmit(e) {
       formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
     }
 
-    // Validação de Status e Moderação de Acesso
-    const all = getRegisteredUsers();
-    let record = findUserRecord(userEmail) || findUserRecord(uid);
     const isSuper = isSuperUser(userEmail);
+    let record = null;
 
+    // 1. Consulta dados no Firestore
+    if (typeof firestoreGetUser === 'function') {
+      try {
+        record = (await firestoreGetUser(uid)) || (await firestoreGetUser(userEmail));
+      } catch (fsErr) {
+        console.warn('Aviso ao consultar usuário no Firestore:', fsErr);
+      }
+    }
+
+    // 2. Fallback no cache local
     if (!record) {
-      record = {
-        uid: uid,
-        email: userEmail,
-        name: formattedName,
-        drogaria: 'Drogasil Mogilar',
-        role: isSuper ? 'superadmin' : 'farmaceutico',
-        status: 'aprovado',
-        createdAt: new Date().toISOString()
-      };
-      all.unshift(record);
-      saveRegisteredUsers(all);
-    } else if (isSuper) {
-      record.role = 'superadmin';
-      record.status = 'aprovado';
-      saveRegisteredUsers(all);
+      record = findUserRecord(userEmail) || findUserRecord(uid);
     }
 
-    if (record.status === 'rejeitado' && !isSuper) {
-      clearAuthSession();
-      if (typeof firebaseLogout === 'function') await firebaseLogout();
-      showLoginFeedback('🚫 Seu acesso foi RECUSADO ou SUSPENSO pelo Super Usuário.', 'is-error');
-      triggerCardShake(loginCard);
-      if (passInput) passInput.value = '';
-      return;
+    const all = getRegisteredUsers();
+    const nowIso = new Date().toISOString();
+
+    if (isSuper) {
+      if (!record) {
+        record = {
+          uid: uid,
+          name: formattedName,
+          email: userEmail,
+          drogaria: 'Drogasil Mogilar',
+          role: 'admin',
+          status: 'approved',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          approvedAt: nowIso,
+          approvedBy: uid,
+          rejectedAt: null,
+          rejectedBy: null,
+          blockedAt: null,
+          blockedBy: null,
+          rejectionReason: null,
+          auditLog: [{ action: 'BOOTSTRAP', performedBy: 'sistema', timestamp: nowIso, details: 'Administrador mestre inicial' }]
+        };
+        all.unshift(record);
+      } else {
+        record.role = 'admin';
+        record.status = 'approved';
+      }
+      saveRegisteredUsers(all);
+
+      if (typeof firestoreSaveUser === 'function') {
+        try { await firestoreSaveUser(record); } catch (e) {}
+      }
+    } else {
+      // Usuário comum: se não possuir registro, cria com status PENDING e role USER
+      if (!record) {
+        record = {
+          uid: uid,
+          name: formattedName,
+          email: userEmail,
+          drogaria: 'Drogasil Mogilar',
+          role: 'user',
+          status: 'pending',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          approvedAt: null,
+          approvedBy: null,
+          rejectedAt: null,
+          rejectedBy: null,
+          blockedAt: null,
+          blockedBy: null,
+          rejectionReason: null,
+          auditLog: [{ action: 'REGISTRATION', performedBy: userEmail, timestamp: nowIso, details: 'Cadastro criado como pending' }]
+        };
+        all.push(record);
+        saveRegisteredUsers(all);
+
+        if (typeof firestoreSaveUser === 'function') {
+          try { await firestoreSaveUser(record); } catch (e) {}
+        }
+      } else {
+        const exIdx = all.findIndex(u => 
+          (u.email && u.email.toLowerCase() === userEmail.toLowerCase()) || 
+          (u.uid && u.uid === uid)
+        );
+        if (exIdx >= 0) {
+          all[exIdx] = { ...all[exIdx], ...record };
+        } else {
+          all.push(record);
+        }
+        saveRegisteredUsers(all);
+      }
+
+      // BLOQUEIO RIGOROSO: apenas status 'approved' tem acesso às áreas protegidas
+      const currentStatus = normalizeStatus(record.status);
+      if (currentStatus !== 'approved') {
+        clearAuthSession();
+        if (typeof firebaseLogout === 'function') {
+          try { await firebaseLogout(); } catch (e) {}
+        }
+
+        if (currentStatus === 'rejected') {
+          const reasonText = record.rejectionReason ? ` Motivo: "${escapeHTML(record.rejectionReason)}"` : '';
+          showLoginFeedback(`🚫 Acesso Rejeitado: Seu cadastro foi recusado pela administração.${reasonText}`, 'is-error');
+        } else if (currentStatus === 'blocked') {
+          showLoginFeedback('🚫 Conta Bloqueada: Seu acesso foi bloqueado pelo Administrador.', 'is-error');
+        } else {
+          showLoginFeedback('⏳ Acesso Bloqueado: Seu cadastro está aguardando APROVAÇÃO de um Administrador.', 'is-warning');
+        }
+
+        triggerCardShake(loginCard);
+        if (passInput) passInput.value = '';
+        return;
+      }
     }
 
-    // Acesso autorizado!
+    // Acesso autorizado (Apenas Administradores ou Usuários expressamente APPROVED)
     const session = {
       user: userEmail,
       name: record.name || formattedName,
       drogaria: record.drogaria || 'Drogasil Mogilar',
-      role: isSuper ? 'superadmin' : (record.role || 'farmaceutico'),
-      status: 'aprovado',
+      role: isSuper ? 'admin' : normalizeRole(record.role || 'user'),
+      status: 'approved',
       uid: uid,
       authType: authType,
       loginTime: new Date().toISOString()
@@ -573,25 +737,18 @@ async function handleLoginSubmit(e) {
     setAuthSession(session, remember);
     updateAuthStateUI(session);
 
-    const roleBadge = isSuper ? ' 👑 [SUPER USUÁRIO]' : '';
-    appendLog(`🟢 <strong>Autenticado com sucesso via Firebase.</strong> Farmacêutico: <strong>${escapeHTML(session.name)}</strong> (${escapeHTML(session.drogaria)})${roleBadge}.`, 'log-success');
+    const roleBadge = isSuper ? ' 🛡️ [ADMINISTRADOR]' : '';
+    appendLog(`🟢 <strong>Autenticado com sucesso.</strong> Usuário: <strong>${escapeHTML(session.name)}</strong> (${escapeHTML(session.user)})${roleBadge}.`, 'log-success');
     showLoginFeedback('', '');
     if (passInput) passInput.value = '';
+
+    // Verifica se a URL acessada era rota de admin
+    checkAdminUrlRoute();
   } catch (error) {
     console.error('Erro de autenticação:', error);
     let errorMsg = '❌ Falha ao autenticar.';
     if (error.code === 'auth/user-not-found') {
-      errorMsg = '❌ Usuário não encontrado no Firebase. A conta foi excluída na nuvem.';
-      // Remove automaticamente da listagem local se não for o Super Usuário mestre
-      if (!isSuperUser(userEmail)) {
-        const allUsers = getRegisteredUsers();
-        const filtered = allUsers.filter(u => u.email !== userEmail && u.uid !== userEmail);
-        if (filtered.length !== allUsers.length) {
-          saveRegisteredUsers(filtered);
-          renderAdminUsersTable();
-          updateSuperUserToolbar();
-        }
-      }
+      errorMsg = '❌ Usuário não encontrado no Firebase.';
     } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
       errorMsg = '❌ E-mail ou senha incorretos.';
     } else if (error.code === 'auth/invalid-email') {
@@ -630,6 +787,7 @@ async function logoutUser() {
 
   clearAuthSession();
   updateAuthStateUI(null);
+  closeAdminUsersPanel();
   appendLog(`🔒 <strong>Sessão encerrada</strong> para: ${escapeHTML(name)}.`, 'log-warning');
   showLoginFeedback('🔒 Sessão encerrada com sucesso.', '');
 }
@@ -637,8 +795,9 @@ async function logoutUser() {
 function showCurrentUser() {
   const session = getAuthSession();
   if (session) {
-    const isSuper = isSuperUser(session.user) ? ' 👑 [SUPER USUÁRIO]' : '';
-    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)})${isSuper} | 🏬 Drogaria: <strong>${escapeHTML(DEFAULT_CONFIG.drogaria)}</strong> | Login: ${new Date(session.loginTime).toLocaleTimeString('pt-BR')}`, 'log-info');
+    const isAdmin = isSuperUser(session.user);
+    const roleBadge = isAdmin ? ' 🛡️ [ADMINISTRADOR]' : ' 👤 [USER]';
+    appendLog(`👤 <strong>Usuário conectado:</strong> ${escapeHTML(session.name || session.user)} (${escapeHTML(session.user)})${roleBadge} | Status: <strong>${escapeHTML(session.status.toUpperCase())}</strong> | Drogaria: <strong>${escapeHTML(DEFAULT_CONFIG.drogaria)}</strong>`, 'log-info');
   } else {
     appendLog(`⚠️ Nenhuma sessão ativa no momento.`, 'log-warning');
   }
@@ -654,13 +813,63 @@ function handlePasswordChange(newPass) {
 }
 
 /* ==========================================================================
-   PAINEL ADMINISTRATIVO DO SUPER USUÁRIO (GESTÃO E APROVAÇÃO DE FARMACÊUTICOS)
+   PAINEL ADMINISTRATIVO (/admin/users) - CONTROLE DE ACESSO E MODERAÇÃO
    ========================================================================== */
 
-function openAdminUsersPanel() {
+let adminFilterState = 'all'; // 'all' | 'pending' | 'approved' | 'rejected' | 'blocked'
+let adminSearchQuery = '';
+
+function setAdminFilter(filter) {
+  adminFilterState = filter || 'all';
+  const buttons = document.querySelectorAll('.admin-filter-btn');
+  buttons.forEach(btn => {
+    if (btn.getAttribute('data-filter') === adminFilterState) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  renderAdminUsersTable();
+}
+
+async function syncUsersWithFirestore() {
+  if (typeof firestoreGetUsersList !== 'function') return;
+  try {
+    const remoteUsers = await firestoreGetUsersList();
+    if (remoteUsers && Array.isArray(remoteUsers) && remoteUsers.length) {
+      const local = getRegisteredUsers();
+      const merged = [...local];
+      remoteUsers.forEach(ru => {
+        const normStatus = normalizeStatus(ru.status);
+        const normRole = normalizeRole(ru.role);
+        const ruClean = {
+          ...ru,
+          status: normStatus,
+          role: normRole,
+          auditLog: Array.isArray(ru.auditLog) ? ru.auditLog : []
+        };
+        const idx = merged.findIndex(lu => 
+          (lu.email && lu.email.toLowerCase() === ruClean.email.toLowerCase()) || 
+          (lu.uid && lu.uid === ruClean.uid)
+        );
+        if (idx >= 0) {
+          merged[idx] = { ...merged[idx], ...ruClean };
+        } else {
+          merged.push(ruClean);
+        }
+      });
+      saveRegisteredUsers(merged);
+      updateSuperUserToolbar();
+    }
+  } catch (err) {
+    console.warn('Aviso ao sincronizar usuários com Firestore:', err);
+  }
+}
+
+async function openAdminUsersPanel() {
   const session = getAuthSession();
   if (!session || !isSuperUser(session.user)) {
-    appendLog('⚠️ Acesso negado: Somente o <strong>Super Usuário</strong> pode acessar a gestão de cadastros.', 'log-error');
+    appendLog('⚠️ Acesso negado: Somente <strong>Administradores</strong> podem acessar o painel de usuários (/admin/users).', 'log-error');
     return;
   }
 
@@ -669,6 +878,9 @@ function openAdminUsersPanel() {
 
   renderAdminUsersTable();
   panel.hidden = false;
+
+  await syncUsersWithFirestore();
+  renderAdminUsersTable();
 }
 
 function closeAdminUsersPanel() {
@@ -677,24 +889,61 @@ function closeAdminUsersPanel() {
   cliInput?.focus();
 }
 
+function checkAdminUrlRoute() {
+  if (typeof window === 'undefined') return;
+  const hash = window.location.hash || '';
+  const path = window.location.pathname || '';
+  if (hash.includes('/admin/users') || hash.includes('admin') || path.includes('/admin/users')) {
+    const session = getAuthSession();
+    if (session && isSuperUser(session.user)) {
+      openAdminUsersPanel();
+    }
+  }
+}
+
 function renderAdminUsersTable() {
   const users = getRegisteredUsers();
   const container = document.getElementById('adminUsersTableContainer');
   const statPending = document.getElementById('statPendingCount');
   const statApproved = document.getElementById('statApprovedCount');
+  const statRejected = document.getElementById('statRejectedCount');
+  const statBlocked = document.getElementById('statBlockedCount');
   const statTotal = document.getElementById('statTotalCount');
 
-  const pendingList = users.filter(u => u.status === 'pendente');
-  const approvedList = users.filter(u => u.status === 'aprovado');
+  const pendingList = users.filter(u => normalizeStatus(u.status) === 'pending');
+  const approvedList = users.filter(u => normalizeStatus(u.status) === 'approved');
+  const rejectedList = users.filter(u => normalizeStatus(u.status) === 'rejected');
+  const blockedList = users.filter(u => normalizeStatus(u.status) === 'blocked');
 
   if (statPending) statPending.textContent = pendingList.length;
   if (statApproved) statApproved.textContent = approvedList.length;
+  if (statRejected) statRejected.textContent = rejectedList.length;
+  if (statBlocked) statBlocked.textContent = blockedList.length;
   if (statTotal) statTotal.textContent = users.length;
 
   if (!container) return;
 
-  if (!users.length) {
-    container.innerHTML = `<div class="admin-empty-state">Nenhum farmacêutico cadastrado no momento.</div>`;
+  // Filtragem por status e busca por texto
+  let filtered = users;
+  if (adminFilterState !== 'all') {
+    filtered = filtered.filter(u => normalizeStatus(u.status) === adminFilterState);
+  }
+
+  if (adminSearchQuery.trim()) {
+    const q = adminSearchQuery.trim().toLowerCase();
+    filtered = filtered.filter(u => 
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.drogaria && u.drogaria.toLowerCase().includes(q)) ||
+      (u.uid && u.uid.toLowerCase().includes(q))
+    );
+  }
+
+  if (!filtered.length) {
+    const msg = adminSearchQuery 
+      ? `Nenhum usuário encontrado para a busca "${escapeHTML(adminSearchQuery)}".` 
+      : `Nenhum usuário encontrado na categoria "${adminFilterState.toUpperCase()}".`;
+    container.innerHTML = `<div class="admin-empty-state">${msg}</div>`;
     return;
   }
 
@@ -702,70 +951,101 @@ function renderAdminUsersTable() {
     <table class="admin-table">
       <thead>
         <tr>
-          <th>👨‍⚕️ Farmacêutico</th>
-          <th>🏬 Drogaria / Filial</th>
-          <th>✉️ E-mail de Acesso</th>
-          <th>📅 Cadastro</th>
+          <th>👤 Usuário</th>
+          <th>✉️ E-mail</th>
+          <th>🏬 Filial / Drogaria</th>
+          <th>Função (Role)</th>
           <th>Status</th>
-          <th>Ações de Moderação</th>
+          <th>📅 Cadastro</th>
+          <th>Moderação</th>
+          <th>Ações</th>
         </tr>
       </thead>
       <tbody>
   `;
 
   const superUser = getSuperAdminUser();
-  users.forEach((u, index) => {
-    // O primeiro usuário cadastrado é sempre o Super Usuário Mestre (inalterável)
-    const isRootAdmin = (superUser && (u.email === superUser.email || u.uid === superUser.uid)) || (index === 0 && u.role === 'superadmin');
+  filtered.forEach((u, index) => {
+    const isRootAdmin = (superUser && (u.email === superUser.email || u.uid === superUser.uid)) || (index === 0 && normalizeRole(u.role) === 'admin');
     const dateFormatted = u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '—';
-    
+    const statusClean = normalizeStatus(u.status);
+    const roleClean = normalizeRole(u.role);
+
     let statusBadge = '';
-    if (isRootAdmin) {
-      statusBadge = `<span class="status-badge approved" style="border-color: #ffd700; color: #ffd700;">👑 Super Usuário</span>`;
-    } else if (u.status === 'pendente') {
+    if (statusClean === 'pending') {
       statusBadge = `<span class="status-badge pending">⏳ Pendente</span>`;
-    } else if (u.status === 'rejeitado') {
-      statusBadge = `<span class="status-badge rejected">❌ Recusado</span>`;
+    } else if (statusClean === 'rejected') {
+      statusBadge = `<span class="status-badge rejected">❌ Rejeitado</span>`;
+    } else if (statusClean === 'blocked') {
+      statusBadge = `<span class="status-badge blocked">🚫 Bloqueado</span>`;
     } else {
       statusBadge = `<span class="status-badge approved">✅ Aprovado</span>`;
     }
 
+    const roleBadge = roleClean === 'admin' 
+      ? `<span class="role-badge admin">🛡️ ADMIN</span>` 
+      : `<span class="role-badge user">👤 USER</span>`;
+
+    // Informação de moderação (quem aprovou/rejeitou/bloqueou)
+    let modInfo = '<span class="log-dim">—</span>';
+    if (u.approvedBy) {
+      modInfo = `<small class="log-dim">Aprovado: ${escapeHTML(u.approvedBy)}</small>`;
+    } else if (u.rejectedBy) {
+      modInfo = `<small class="log-dim" style="color:#ff6666;">Rejeitado: ${escapeHTML(u.rejectedBy)}</small>`;
+    } else if (u.blockedBy) {
+      modInfo = `<small class="log-dim" style="color:#ff0055;">Bloqueado: ${escapeHTML(u.blockedBy)}</small>`;
+    }
+
+    const emailEsc = escapeHTML(u.email);
     let actionsHTML = '';
+
     if (isRootAdmin) {
-      actionsHTML = `<span class="log-dim" style="font-size: 0.78rem; font-weight: 600; color: #00ff41;">👑 Super Usuário (Mestre)</span>`;
+      actionsHTML = `
+        <span class="log-dim" style="font-size: 0.76rem; font-weight: 700; color: #ffd700;">👑 Admin Mestre</span>
+        <button class="admin-btn-action btn-details" onclick="viewUserDetailsAction('${emailEsc}')" title="Ver Detalhes">📄 Detalhes</button>
+      `;
     } else {
-      // OS DEMAIS USUÁRIOS PODEM SER EDITADOS, APROVADOS OU EXCLUÍDOS
-      const emailEsc = escapeHTML(u.email);
-      let statusSpecificBtns = '';
-      if (u.status === 'pendente') {
-        statusSpecificBtns = `
-          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar cadastro deste farmacêutico">✅ Aprovar</button>
-          <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Recusar cadastro">❌ Recusar</button>
+      let statusBtns = '';
+      if (statusClean === 'pending') {
+        statusBtns = `
+          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar usuário">✅ Aprovar</button>
+          <button class="admin-btn-action btn-reject" onclick="openRejectUserModal('${emailEsc}')" title="Rejeitar usuário com motivo">❌ Rejeitar</button>
         `;
-      } else if (u.status === 'aprovado') {
-        statusSpecificBtns = `
-          <button class="admin-btn-action btn-reject" onclick="rejectUserAction('${emailEsc}')" title="Suspender acesso">🚫 Suspender</button>
+      } else if (statusClean === 'approved') {
+        statusBtns = `
+          <button class="admin-btn-action btn-block" onclick="blockUserAction('${emailEsc}')" title="Bloquear acesso deste usuário">🚫 Bloquear</button>
         `;
-      } else {
-        statusSpecificBtns = `
-          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Reativar e aprovar acesso">✅ Reativar</button>
+      } else if (statusClean === 'blocked') {
+        statusBtns = `
+          <button class="admin-btn-action btn-unblock" onclick="unblockUserAction('${emailEsc}')" title="Desbloquear acesso deste usuário">🔓 Desbloquear</button>
+        `;
+      } else if (statusClean === 'rejected') {
+        statusBtns = `
+          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Reavaliar e aprovar">✅ Aprovar</button>
         `;
       }
 
+      const toggleRoleTitle = roleClean === 'admin' ? 'Rebaixar para Usuário Comum (user)' : 'Promover a Administrador (admin)';
+      const toggleRoleText = roleClean === 'admin' ? '👤 Tornar User' : '⭐ Tornar Admin';
+
       actionsHTML = `
-        ${statusSpecificBtns}
-        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar nome/drogaria deste farmacêutico">✏️ Editar</button>
-        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir este farmacêutico permanentemente">🗑️ Excluir</button>
+        ${statusBtns}
+        <button class="admin-btn-action btn-role" onclick="toggleRoleUserAction('${emailEsc}')" title="${toggleRoleTitle}">${toggleRoleText}</button>
+        <button class="admin-btn-action btn-details" onclick="viewUserDetailsAction('${emailEsc}')" title="Ver detalhes completos e auditoria">📄 Detalhes</button>
+        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar dados cadastrais">✏️ Editar</button>
+        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir usuário">🗑️ Excluir</button>
       `;
     }
 
     tableHTML += `
       <tr>
         <td><strong>${escapeHTML(u.name || '—')}</strong>${isRootAdmin ? ' <span style="color:#ffd700">👑</span>' : ''}</td>
-        <td>${escapeHTML(u.drogaria || '—')}</td>
         <td><code>${escapeHTML(u.email || '—')}</code></td>
-        <td><small class="log-dim">${dateFormatted}</small></td>
+        <td>${escapeHTML(u.drogaria || '—')}</td>
+        <td>${roleBadge}</td>
         <td>${statusBadge}</td>
+        <td><small class="log-dim">${dateFormatted}</small></td>
+        <td>${modInfo}</td>
         <td><div class="admin-actions-cell">${actionsHTML}</div></td>
       </tr>
     `;
@@ -779,49 +1059,333 @@ function renderAdminUsersTable() {
   container.innerHTML = tableHTML;
 }
 
-function approveUserAction(emailOrUid) {
+// Ação: Aprovar Usuário
+async function approveUserAction(emailOrUid) {
+  const session = getAuthSession();
+  const adminActor = session ? (session.uid || session.user) : 'admin';
   const users = getRegisteredUsers();
   const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
   if (!target) return;
 
-  target.status = 'aprovado';
+  const nowIso = new Date().toISOString();
+  target.status = 'approved';
+  target.approvedAt = nowIso;
+  target.approvedBy = adminActor;
+  target.rejectedAt = null;
+  target.rejectedBy = null;
+  target.blockedAt = null;
+  target.blockedBy = null;
+  target.rejectionReason = null;
+  target.updatedAt = nowIso;
+
+  addAuditLogEntry(target, 'APPROVAL', 'Usuário aprovado pelo Administrador', adminActor);
   saveRegisteredUsers(users);
   renderAdminUsersTable();
   updateSuperUserToolbar();
-  appendLog(`✅ <strong>Farmacêutico Aprovado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.drogaria)} - ${escapeHTML(target.email)}). Acesso liberado!`, 'log-success');
+
+  if (typeof firestoreApproveUser === 'function') {
+    try {
+      await firestoreApproveUser(target.uid || target.email, adminActor, session?.user);
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar aprovação no Firestore:', fsErr);
+    }
+  }
+
+  appendLog(`✅ <strong>Usuário Aprovado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}). Acesso liberado no terminal e no Firestore!`, 'log-success');
 }
 
-function rejectUserAction(emailOrUid) {
+// Ação: Modal e Fluxo de Rejeição com Motivo
+function openRejectUserModal(emailOrUid) {
+  const target = findUserRecord(emailOrUid);
+  if (!target) return;
+
   if (isSuperUser(emailOrUid)) {
-    alert('🛡️ Proteção: O Super Usuário Mestre não pode ter seu acesso suspenso.');
+    alert('🛡️ Proteção: O Administrador Mestre não pode ser rejeitado.');
     return;
   }
+
+  const modal = document.getElementById('adminRejectModal');
+  const targetEmailInput = document.getElementById('rejectTargetEmail');
+  const targetDisplay = document.getElementById('rejectTargetDisplay');
+  const reasonInput = document.getElementById('rejectReasonInput');
+
+  if (targetEmailInput) targetEmailInput.value = target.email;
+  if (targetDisplay) targetDisplay.textContent = `${target.name} (${target.email})`;
+  if (reasonInput) reasonInput.value = '';
+  if (modal) modal.hidden = false;
+  setTimeout(() => reasonInput?.focus(), 50);
+}
+
+function closeAdminRejectModal() {
+  const modal = document.getElementById('adminRejectModal');
+  if (modal) modal.hidden = true;
+}
+
+async function handleConfirmReject(e) {
+  if (e) e.preventDefault();
+  const emailInput = document.getElementById('rejectTargetEmail');
+  const reasonInput = document.getElementById('rejectReasonInput');
+  const email = emailInput?.value;
+  const reason = reasonInput?.value.trim() || 'Cadastro não aprovado pela administração.';
+
+  if (!email) return;
+  await rejectUserAction(email, reason);
+  closeAdminRejectModal();
+}
+
+async function rejectUserAction(emailOrUid, reason = '') {
+  if (isSuperUser(emailOrUid)) {
+    alert('🛡️ Proteção: O Administrador Mestre não pode ser rejeitado.');
+    return;
+  }
+  const session = getAuthSession();
+  const adminActor = session ? (session.uid || session.user) : 'admin';
   const users = getRegisteredUsers();
   const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
   if (!target) return;
 
-  target.status = 'rejeitado';
+  const nowIso = new Date().toISOString();
+  target.status = 'rejected';
+  target.rejectedAt = nowIso;
+  target.rejectedBy = adminActor;
+  target.rejectionReason = reason || 'Não especificado';
+  target.updatedAt = nowIso;
+
+  addAuditLogEntry(target, 'REJECTION', `Cadastro recusado. Motivo: ${reason}`, adminActor);
   saveRegisteredUsers(users);
   renderAdminUsersTable();
   updateSuperUserToolbar();
-  appendLog(`🚫 <strong>Acesso Recusado / Suspenso:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}).`, 'log-warning');
+
+  if (typeof firestoreRejectUser === 'function') {
+    try {
+      await firestoreRejectUser(target.uid || target.email, adminActor, session?.user, reason);
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar recusa no Firestore:', fsErr);
+    }
+  }
+
+  appendLog(`🚫 <strong>Acesso Rejeitado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}). Motivo: "${escapeHTML(reason)}".`, 'log-warning');
 }
 
-function editUserAction(emailOrUid) {
+// Ação: Bloquear Usuário
+async function blockUserAction(emailOrUid) {
+  if (isSuperUser(emailOrUid)) {
+    alert('🛡️ Proteção: O Administrador Mestre não pode ser bloqueado.');
+    return;
+  }
+  const session = getAuthSession();
+  if (session && (session.user === emailOrUid || session.uid === emailOrUid)) {
+    alert('🛡️ Você não pode bloquear sua própria conta ativa.');
+    return;
+  }
+
+  const adminActor = session ? (session.uid || session.user) : 'admin';
   const users = getRegisteredUsers();
   const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
   if (!target) return;
 
-  const newName = prompt(`Editar Nome do Farmacêutico para ${target.email}:`, target.name);
+  const nowIso = new Date().toISOString();
+  target.status = 'blocked';
+  target.blockedAt = nowIso;
+  target.blockedBy = adminActor;
+  target.updatedAt = nowIso;
+
+  addAuditLogEntry(target, 'BLOCK', 'Usuário bloqueado pelo Administrador', adminActor);
+  saveRegisteredUsers(users);
+  renderAdminUsersTable();
+  updateSuperUserToolbar();
+
+  if (typeof firestoreBlockUser === 'function') {
+    try {
+      await firestoreBlockUser(target.uid || target.email, adminActor, session?.user);
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar bloqueio no Firestore:', fsErr);
+    }
+  }
+
+  appendLog(`🚫 <strong>Usuário Bloqueado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}).`, 'log-warning');
+}
+
+// Ação: Desbloquear Usuário
+async function unblockUserAction(emailOrUid) {
+  const session = getAuthSession();
+  const adminActor = session ? (session.uid || session.user) : 'admin';
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  const nowIso = new Date().toISOString();
+  target.status = 'approved';
+  target.approvedAt = nowIso;
+  target.approvedBy = adminActor;
+  target.blockedAt = null;
+  target.blockedBy = null;
+  target.updatedAt = nowIso;
+
+  addAuditLogEntry(target, 'UNBLOCK', 'Usuário desbloqueado pelo Administrador', adminActor);
+  saveRegisteredUsers(users);
+  renderAdminUsersTable();
+  updateSuperUserToolbar();
+
+  if (typeof firestoreUnblockUser === 'function') {
+    try {
+      await firestoreUnblockUser(target.uid || target.email, adminActor, session?.user);
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar desbloqueio no Firestore:', fsErr);
+    }
+  }
+
+  appendLog(`🔓 <strong>Usuário Desbloqueado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}). Acesso liberado novamente.`, 'log-success');
+}
+
+// Ação: Alternar Função (Role) entre 'user' e 'admin'
+async function toggleRoleUserAction(emailOrUid) {
+  if (isSuperUser(emailOrUid)) {
+    alert('🛡️ Proteção: O Administrador Mestre não pode ter sua função alterada.');
+    return;
+  }
+  const session = getAuthSession();
+  const adminActor = session ? (session.uid || session.user) : 'admin';
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  const currentRole = normalizeRole(target.role);
+  const newRole = currentRole === 'admin' ? 'user' : 'admin';
+  const nowIso = new Date().toISOString();
+
+  target.role = newRole;
+  target.updatedAt = nowIso;
+  addAuditLogEntry(target, 'ROLE_CHANGE', `Função alterada de ${currentRole.toUpperCase()} para ${newRole.toUpperCase()}`, adminActor);
+
+  saveRegisteredUsers(users);
+  renderAdminUsersTable();
+
+  if (typeof firestoreChangeUserRole === 'function') {
+    try {
+      await firestoreChangeUserRole(target.uid || target.email, newRole);
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar alteração de role no Firestore:', fsErr);
+    }
+  }
+
+  appendLog(`⭐ <strong>Permissão Atualizada:</strong> ${escapeHTML(target.name)} agora possui função <strong>${newRole.toUpperCase()}</strong>.`, 'log-info');
+}
+
+// Ação: Visualizar Detalhes e Histórico de Auditoria do Usuário
+function viewUserDetailsAction(emailOrUid) {
+  const target = findUserRecord(emailOrUid);
+  if (!target) return;
+
+  const modal = document.getElementById('adminUserDetailsModal');
+  const content = document.getElementById('adminUserDetailsContent');
+  if (!modal || !content) return;
+
+  const statusClean = normalizeStatus(target.status);
+  const roleClean = normalizeRole(target.role);
+
+  let auditHTML = '<p class="log-dim" style="font-size:0.75rem;">Nenhum evento registrado no histórico.</p>';
+  if (Array.isArray(target.auditLog) && target.auditLog.length) {
+    auditHTML = `
+      <ul class="admin-audit-list">
+        ${target.auditLog.map(item => `
+          <li class="admin-audit-item">
+            <strong>[${new Date(item.timestamp).toLocaleString('pt-BR')}] ${escapeHTML(item.action)}</strong>: ${escapeHTML(item.details)} 
+            <span class="log-dim">(${escapeHTML(item.performedBy)})</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  }
+
+  content.innerHTML = `
+    <div class="admin-detail-grid">
+      <span class="admin-detail-key">UID:</span>
+      <span class="admin-detail-val"><code>${escapeHTML(target.uid || '—')}</code></span>
+
+      <span class="admin-detail-key">Nome:</span>
+      <span class="admin-detail-val"><strong>${escapeHTML(target.name || '—')}</strong></span>
+
+      <span class="admin-detail-key">E-mail:</span>
+      <span class="admin-detail-val"><code>${escapeHTML(target.email || '—')}</code></span>
+
+      <span class="admin-detail-key">Drogaria / Filial:</span>
+      <span class="admin-detail-val">${escapeHTML(target.drogaria || '—')}</span>
+
+      <span class="admin-detail-key">Função (Role):</span>
+      <span class="admin-detail-val"><strong style="color:#ffd700">${roleClean.toUpperCase()}</strong></span>
+
+      <span class="admin-detail-key">Status Atual:</span>
+      <span class="admin-detail-val"><strong style="color:var(--prompt-color)">${statusClean.toUpperCase()}</strong></span>
+
+      <span class="admin-detail-key">Data de Cadastro:</span>
+      <span class="admin-detail-val">${target.createdAt ? new Date(target.createdAt).toLocaleString('pt-BR') : '—'}</span>
+
+      <span class="admin-detail-key">Última Atualização:</span>
+      <span class="admin-detail-val">${target.updatedAt ? new Date(target.updatedAt).toLocaleString('pt-BR') : '—'}</span>
+
+      <span class="admin-detail-key">Aprovado em / por:</span>
+      <span class="admin-detail-val">${target.approvedAt ? `${new Date(target.approvedAt).toLocaleString('pt-BR')} (por ${escapeHTML(target.approvedBy || 'admin')})` : '—'}</span>
+
+      <span class="admin-detail-key">Rejeitado em / por:</span>
+      <span class="admin-detail-val">${target.rejectedAt ? `${new Date(target.rejectedAt).toLocaleString('pt-BR')} (por ${escapeHTML(target.rejectedBy || 'admin')})` : '—'}</span>
+
+      ${target.rejectionReason ? `
+        <span class="admin-detail-key">Motivo Rejeição:</span>
+        <span class="admin-detail-val" style="color:#ff6666">${escapeHTML(target.rejectionReason)}</span>
+      ` : ''}
+
+      <span class="admin-detail-key">Bloqueado em / por:</span>
+      <span class="admin-detail-val">${target.blockedAt ? `${new Date(target.blockedAt).toLocaleString('pt-BR')} (por ${escapeHTML(target.blockedBy || 'admin')})` : '—'}</span>
+    </div>
+
+    <div class="admin-audit-section">
+      <div class="admin-audit-title">📜 Histórico de Alterações Administrativas (Auditoria)</div>
+      ${auditHTML}
+    </div>
+  `;
+
+  modal.hidden = false;
+}
+
+function closeAdminDetailsModal() {
+  const modal = document.getElementById('adminUserDetailsModal');
+  if (modal) modal.hidden = true;
+}
+
+async function editUserAction(emailOrUid) {
+  const users = getRegisteredUsers();
+  const target = users.find(u => u.email === emailOrUid || u.uid === emailOrUid);
+  if (!target) return;
+
+  const newName = prompt(`Editar Nome do Usuário para ${target.email}:`, target.name);
   if (newName === null) return;
   const newDrogaria = prompt(`Editar Drogaria/Filial para ${target.email}:`, target.drogaria);
   if (newDrogaria === null) return;
 
+  const session = getAuthSession();
+  const adminActor = session ? (session.uid || session.user) : 'admin';
+  const nowIso = new Date().toISOString();
+
   if (newName.trim()) target.name = newName.trim();
   if (newDrogaria.trim()) target.drogaria = newDrogaria.trim();
+  target.updatedAt = nowIso;
+
+  addAuditLogEntry(target, 'EDIT_PROFILE', `Nome alterado para "${target.name}", filial para "${target.drogaria}"`, adminActor);
   saveRegisteredUsers(users);
 
-  // Se o usuário editado for o mesmo da sessão ativa, atualiza toda a aplicação dinamicamente!
+  if (typeof firestoreUpdateUserStatus === 'function') {
+    try {
+      await firestoreUpdateUserStatus(target.uid || target.email, target.status, {
+        name: target.name,
+        drogaria: target.drogaria,
+        updatedAt: nowIso
+      });
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar edição no Firestore:', fsErr);
+    }
+  }
+
   const currentSession = getAuthSession();
   if (currentSession && (currentSession.user === target.email || currentSession.uid === target.uid)) {
     currentSession.name = target.name;
@@ -831,19 +1395,19 @@ function editUserAction(emailOrUid) {
   }
 
   renderAdminUsersTable();
-  appendLog(`✏️ <strong>Cadastro atualizado:</strong> ${escapeHTML(target.name)} pertencente à <strong>${escapeHTML(target.drogaria)}</strong>.`, 'log-info');
+  appendLog(`✏️ <strong>Cadastro atualizado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.drogaria)}).`, 'log-info');
 }
 
-function deleteUserAction(emailOrUid) {
+async function deleteUserAction(emailOrUid) {
   const session = getAuthSession();
   if (!session || !isSuperUser(session.user)) {
-    appendLog('⚠️ Apenas o <strong>Super Usuário</strong> tem permissão para deletar usuários.', 'log-error');
+    appendLog('⚠️ Apenas <strong>Administradores</strong> têm permissão para deletar usuários.', 'log-error');
     return false;
   }
 
   if (isSuperUser(emailOrUid)) {
-    alert('🛡️ Proteção de Segurança: O primeiro usuário cadastrado é o Super Usuário Mestre e NUNCA pode ser excluído.');
-    appendLog(`🛡️ Operação negada: O Super Usuário Mestre inicial não pode ser deletado.`, 'log-warning');
+    alert('🛡️ Proteção de Segurança: O Administrador Mestre NUNCA pode ser excluído.');
+    appendLog(`🛡️ Operação negada: O Administrador Mestre inicial não pode ser deletado.`, 'log-warning');
     return false;
   }
 
@@ -859,19 +1423,25 @@ function deleteUserAction(emailOrUid) {
   }
 
   const confirmMsg = `⚠️ ATENÇÃO - EXCLUSÃO PERMANENTE:\n\n` +
-    `Deseja realmente DELETAR o usuário comum:\n` +
-    `• Farmacêutico: ${target.name}\n` +
-    `• Drogaria: ${target.drogaria}\n` +
+    `Deseja realmente DELETAR o usuário:\n` +
+    `• Nome: ${target.name}\n` +
     `• E-mail: ${target.email}\n` +
     `• Status Atual: ${target.status.toUpperCase()}\n\n` +
-    `Esta ação é irreversível e removerá todo o cadastro deste usuário.`;
+    `Esta ação é irreversível e removerá o cadastro no terminal e na nuvem.`;
 
   if (!confirm(confirmMsg)) return false;
 
   const filtered = users.filter(u => u.email !== target.email && u.uid !== target.uid);
   saveRegisteredUsers(filtered);
 
-  // Se o usuário excluído estiver autenticado neste navegador, encerra a sessão imediatamente
+  if (typeof firestoreDeleteUser === 'function') {
+    try {
+      await firestoreDeleteUser(target.uid || target.email);
+    } catch (fsErr) {
+      console.warn('Aviso ao excluir do Firestore:', fsErr);
+    }
+  }
+
   if (session.user === target.email || session.uid === target.uid) {
     clearAuthSession();
     updateAuthStateUI(null);
@@ -879,18 +1449,27 @@ function deleteUserAction(emailOrUid) {
 
   renderAdminUsersTable();
   updateSuperUserToolbar();
-  appendLog(`🗑️ <strong>Usuário comum deletado com sucesso:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)} - ${escapeHTML(target.drogaria)}).`, 'log-warning');
+  appendLog(`🗑️ <strong>Usuário deletado:</strong> ${escapeHTML(target.name)} (${escapeHTML(target.email)}).`, 'log-warning');
   return true;
 }
 
-// Expõe ações globais para cliques inline no HTML da tabela administrativa
+// Expõe ações globais para cliques inline no HTML
 if (typeof window !== 'undefined') {
   window.approveUserAction = approveUserAction;
   window.rejectUserAction = rejectUserAction;
+  window.openRejectUserModal = openRejectUserModal;
+  window.closeAdminRejectModal = closeAdminRejectModal;
+  window.handleConfirmReject = handleConfirmReject;
+  window.blockUserAction = blockUserAction;
+  window.unblockUserAction = unblockUserAction;
+  window.toggleRoleUserAction = toggleRoleUserAction;
+  window.viewUserDetailsAction = viewUserDetailsAction;
+  window.closeAdminDetailsModal = closeAdminDetailsModal;
   window.editUserAction = editUserAction;
   window.deleteUserAction = deleteUserAction;
   window.openAdminUsersPanel = openAdminUsersPanel;
   window.closeAdminUsersPanel = closeAdminUsersPanel;
+  window.setAdminFilter = setAdminFilter;
 }
 
 function initializeAuth() {
@@ -904,6 +1483,8 @@ function initializeAuth() {
   const logoutBtn = document.getElementById('logoutBtn');
   const adminUsersBtn = document.getElementById('adminUsersBtn');
   const adminUsersCloseBtn = document.getElementById('adminUsersCloseBtn');
+  const adminSearchInput = document.getElementById('adminSearchInput');
+  const adminSearchClearBtn = document.getElementById('adminSearchClearBtn');
 
   if (tabLoginBtn) tabLoginBtn.addEventListener('click', () => switchAuthTab('login'));
   if (tabRegisterBtn) tabRegisterBtn.addEventListener('click', () => switchAuthTab('register'));
@@ -920,9 +1501,33 @@ function initializeAuth() {
   if (adminUsersBtn) adminUsersBtn.addEventListener('click', openAdminUsersPanel);
   if (adminUsersCloseBtn) adminUsersCloseBtn.addEventListener('click', closeAdminUsersPanel);
 
+  if (adminSearchInput) {
+    adminSearchInput.addEventListener('input', (e) => {
+      adminSearchQuery = e.target.value;
+      if (adminSearchClearBtn) {
+        adminSearchClearBtn.style.display = adminSearchQuery ? 'block' : 'none';
+      }
+      renderAdminUsersTable();
+    });
+  }
+
+  if (adminSearchClearBtn) {
+    adminSearchClearBtn.addEventListener('click', () => {
+      adminSearchQuery = '';
+      if (adminSearchInput) adminSearchInput.value = '';
+      adminSearchClearBtn.style.display = 'none';
+      renderAdminUsersTable();
+    });
+  }
+
   document.querySelectorAll('[data-admin-close]').forEach(el => {
     el.addEventListener('click', closeAdminUsersPanel);
   });
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('hashchange', checkAdminUrlRoute);
+    window.addEventListener('popstate', checkAdminUrlRoute);
+  }
 
   // Inicializa o Firebase se configurado
   if (typeof initFirebase === 'function') {
@@ -934,35 +1539,112 @@ function initializeAuth() {
         }
         if (user) {
           const isSuper = isSuperUser(user.email);
-          const all = getRegisteredUsers();
-          let record = findUserRecord(user.email) || findUserRecord(user.uid);
+          let record = null;
 
-          if (!record) {
-            record = {
-              uid: user.uid,
-              email: user.email,
-              name: (user.displayName || user.email.split('@')[0]),
-              drogaria: DEFAULT_CONFIG.drogaria,
-              role: isSuper ? 'superadmin' : 'farmaceutico',
-              status: 'aprovado',
-              createdAt: new Date().toISOString()
-            };
-            all.unshift(record);
-            saveRegisteredUsers(all);
-          } else if (isSuper) {
-            record.status = 'aprovado';
-            record.role = 'superadmin';
-            saveRegisteredUsers(all);
+          if (typeof firestoreGetUser === 'function') {
+            try {
+              record = (await firestoreGetUser(user.uid)) || (await firestoreGetUser(user.email));
+            } catch (fsErr) {
+              console.warn('Aviso ao consultar usuário no Firestore em authStateChanged:', fsErr);
+            }
           }
 
-          if (record && record.status === 'rejeitado' && !isSuper) {
-            clearAuthSession();
-            updateAuthStateUI(null);
-            try {
-              if (typeof firebaseLogout === 'function') await firebaseLogout();
-            } catch (e) {}
-            showLoginFeedback('🚫 Seu acesso foi suspenso pelo Super Usuário.', 'is-error');
-            return;
+          if (!record) {
+            record = findUserRecord(user.email) || findUserRecord(user.uid);
+          }
+
+          const all = getRegisteredUsers();
+          const nowIso = new Date().toISOString();
+
+          if (isSuper) {
+            if (!record) {
+              record = {
+                uid: user.uid,
+                name: (user.displayName || user.email.split('@')[0]),
+                email: user.email,
+                drogaria: DEFAULT_CONFIG.drogaria,
+                role: 'admin',
+                status: 'approved',
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                approvedAt: nowIso,
+                approvedBy: user.uid,
+                rejectedAt: null,
+                rejectedBy: null,
+                blockedAt: null,
+                blockedBy: null,
+                rejectionReason: null,
+                auditLog: [{ action: 'BOOTSTRAP', performedBy: 'sistema', timestamp: nowIso, details: 'Administrador mestre inicial' }]
+              };
+              all.unshift(record);
+            } else {
+              record.status = 'approved';
+              record.role = 'admin';
+            }
+            saveRegisteredUsers(all);
+
+            if (typeof firestoreSaveUser === 'function') {
+              try { await firestoreSaveUser(record); } catch (e) {}
+            }
+          } else {
+            // Se usuário comum não tiver registro, cria como PENDING
+            if (!record) {
+              record = {
+                uid: user.uid,
+                name: (user.displayName || user.email.split('@')[0]),
+                email: user.email,
+                drogaria: DEFAULT_CONFIG.drogaria,
+                role: 'user',
+                status: 'pending',
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                approvedAt: null,
+                approvedBy: null,
+                rejectedAt: null,
+                rejectedBy: null,
+                blockedAt: null,
+                blockedBy: null,
+                rejectionReason: null,
+                auditLog: [{ action: 'REGISTRATION', performedBy: user.email, timestamp: nowIso, details: 'Cadastro criado como pending' }]
+              };
+              all.push(record);
+              saveRegisteredUsers(all);
+
+              if (typeof firestoreSaveUser === 'function') {
+                try { await firestoreSaveUser(record); } catch (e) {}
+              }
+            } else {
+              const exIdx = all.findIndex(u => 
+                (u.email && u.email.toLowerCase() === user.email.toLowerCase()) || 
+                (u.uid && u.uid === user.uid)
+              );
+              if (exIdx >= 0) {
+                all[exIdx] = { ...all[exIdx], ...record };
+              } else {
+                all.push(record);
+              }
+              saveRegisteredUsers(all);
+            }
+
+            // BLOQUEIO RIGOROSO: se status não for 'approved', desconecta na hora
+            const currentStatus = normalizeStatus(record.status);
+            if (currentStatus !== 'approved') {
+              clearAuthSession();
+              updateAuthStateUI(null);
+              try {
+                if (typeof firebaseLogout === 'function') await firebaseLogout();
+              } catch (e) {}
+
+              if (currentStatus === 'rejected') {
+                const reasonText = record.rejectionReason ? ` Motivo: "${escapeHTML(record.rejectionReason)}"` : '';
+                showLoginFeedback(`🚫 Acesso Rejeitado: Seu cadastro foi recusado pela administração.${reasonText}`, 'is-error');
+              } else if (currentStatus === 'blocked') {
+                showLoginFeedback('🚫 Conta Bloqueada: Seu acesso foi bloqueado pelo Administrador.', 'is-error');
+              } else {
+                showLoginFeedback('⏳ Acesso Bloqueado: Seu cadastro está aguardando aprovação administrativa.', 'is-warning');
+              }
+              return;
+            }
           }
 
           const displayName = (record && record.name) || user.displayName || user.email.split('@')[0];
@@ -973,8 +1655,8 @@ function initializeAuth() {
             user: user.email,
             name: formattedName,
             drogaria: drogaria,
-            role: isSuper ? 'superadmin' : (record.role || 'farmaceutico'),
-            status: 'aprovado',
+            role: isSuper ? 'admin' : normalizeRole(record.role || 'user'),
+            status: 'approved',
             uid: user.uid,
             authType: 'firebase',
             loginTime: new Date().toISOString()
@@ -2572,38 +3254,92 @@ async function executeCommand(inputCmd) {
       break;
 
     case 'usuarios':
+    case 'users':
     case 'farmaceuticos':
     case 'admin':
+    case '/admin/users':
     case 'aprovacoes':
       const sessionAdm = getAuthSession();
       if (!sessionAdm || !isSuperUser(sessionAdm.user)) {
-        appendLog(`⚠️ O gerenciamento de cadastros é restrito ao <strong>Super Usuário</strong>.`, 'log-error');
+        appendLog(`⚠️ O gerenciamento de cadastros é restrito a <strong>Administradores</strong>.`, 'log-error');
       } else {
         openAdminUsersPanel();
-        appendLog(`👥 <strong>Painel do Super Usuário aberto.</strong> Modere cadastros pendentes ou atualize drogarias.`, 'log-info');
+        appendLog(`🛡️ <strong>Painel Administrativo (/admin/users) aberto.</strong> Gerencie permissões e aprove cadastros.`, 'log-info');
       }
       break;
 
     case 'aprovar':
       const admSessApprove = getAuthSession();
       if (!admSessApprove || !isSuperUser(admSessApprove.user)) {
-        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> pode aprovar cadastros.`, 'log-error');
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem aprovar cadastros.`, 'log-error');
       } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">aprovar &lt;email_ou_nome&gt;</code> ou abra o comando <code class="log-info">usuarios</code>.`, 'log-warning');
+        appendLog(`ℹ️ Uso: <code class="log-info">aprovar &lt;email_ou_nome&gt;</code> ou acesse <code class="log-info">usuarios</code>.`, 'log-warning');
       } else {
         approveUserAction(parts[1]);
       }
       break;
 
+    case 'rejeitar':
     case 'recusar':
-    case 'suspender':
       const admSessReject = getAuthSession();
       if (!admSessReject || !isSuperUser(admSessReject.user)) {
-        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> pode recusar ou suspender cadastros.`, 'log-error');
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem rejeitar cadastros.`, 'log-error');
       } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">recusar &lt;email_ou_nome&gt;</code> ou abra o comando <code class="log-info">usuarios</code>.`, 'log-warning');
+        appendLog(`ℹ️ Uso: <code class="log-info">rejeitar &lt;email_ou_nome&gt; [motivo...]</code>`, 'log-warning');
       } else {
-        rejectUserAction(parts[1]);
+        const reason = parts.slice(2).join(' ') || 'Recusado via comando do terminal.';
+        rejectUserAction(parts[1], reason);
+      }
+      break;
+
+    case 'bloquear':
+    case 'suspender':
+      const admSessBlock = getAuthSession();
+      if (!admSessBlock || !isSuperUser(admSessBlock.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem bloquear contas.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">bloquear &lt;email_ou_nome&gt;</code>`, 'log-warning');
+      } else {
+        blockUserAction(parts[1]);
+      }
+      break;
+
+    case 'desbloquear':
+    case 'reativar':
+      const admSessUnblock = getAuthSession();
+      if (!admSessUnblock || !isSuperUser(admSessUnblock.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem desbloquear contas.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">desbloquear &lt;email_ou_nome&gt;</code>`, 'log-warning');
+      } else {
+        unblockUserAction(parts[1]);
+      }
+      break;
+
+    case 'role':
+    case 'funcao':
+    case 'cargo':
+      const admSessRole = getAuthSession();
+      if (!admSessRole || !isSuperUser(admSessRole.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem alterar funções.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">role &lt;email&gt; &lt;user|admin&gt;</code>`, 'log-warning');
+      } else if (parts[2]) {
+        const newRole = normalizeRole(parts[2]);
+        const target = findUserRecord(parts[1]);
+        if (target) {
+          target.role = newRole;
+          saveRegisteredUsers(getRegisteredUsers());
+          if (typeof firestoreChangeUserRole === 'function') {
+            firestoreChangeUserRole(target.uid || target.email, newRole);
+          }
+          renderAdminUsersTable();
+          appendLog(`⭐ <strong>Função alterada:</strong> ${escapeHTML(target.name)} agora é <strong>${newRole.toUpperCase()}</strong>.`, 'log-info');
+        } else {
+          appendLog(`⚠️ Usuário "${escapeHTML(parts[1])}" não encontrado.`, 'log-warning');
+        }
+      } else {
+        toggleRoleUserAction(parts[1]);
       }
       break;
 
@@ -2612,7 +3348,7 @@ async function executeCommand(inputCmd) {
     case 'remover':
       const admSessDel = getAuthSession();
       if (!admSessDel || !isSuperUser(admSessDel.user)) {
-        appendLog(`⚠️ Apenas o <strong>Super Usuário</strong> tem permissão para deletar usuários comuns.`, 'log-error');
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> têm permissão para deletar usuários.`, 'log-error');
       } else if (!parts[1]) {
         appendLog(`ℹ️ Uso: <code class="log-info">deletar &lt;email_ou_nome&gt;</code> ou acesse o painel pelo comando <code class="log-info">usuarios</code>.`, 'log-warning');
       } else {
