@@ -5,6 +5,7 @@ const html = fs.readFileSync('/home/maxwell/terminal/index.html', 'utf8');
 const css = fs.readFileSync('/home/maxwell/terminal/style.css', 'utf8');
 const rules = fs.readFileSync('/home/maxwell/terminal/firestore.rules', 'utf8');
 const firebaseConfig = fs.readFileSync('/home/maxwell/terminal/firebase-config.js', 'utf8');
+const firebaseJson = fs.readFileSync('/home/maxwell/terminal/firebase.json', 'utf8');
 
 // =========================================================================
 // 1. TESTES ESTRUTURAIS DO PAINEL GEMINI & UI BÁSICA
@@ -116,7 +117,14 @@ const userRequirements = [
   ['funções de moderação em firebase-config.js', firebaseConfig.includes('firestoreApproveUser') && firebaseConfig.includes('firestoreRejectUser') && firebaseConfig.includes('firestoreBlockUser') && firebaseConfig.includes('firestoreUnblockUser')],
   ['regras de segurança isAdmin em firestore.rules', rules.includes('function isAdmin()')],
   ['regras de segurança isApprovedUser em firestore.rules', rules.includes('function isApprovedUser()')],
-  ['regras bloqueiam escrita para não aprovados', rules.includes('allow read, write: if isAuthenticated() && isApprovedUser();')]
+  ['regras bloqueiam escrita para não aprovados', rules.includes('allow read, write: if isAuthenticated() && isApprovedUser();')],
+  ['cabeçalho X-Content-Type-Options no firebase.json', firebaseJson.includes('"nosniff"')],
+  ['cabeçalho X-Frame-Options no firebase.json', firebaseJson.includes('"SAMEORIGIN"')],
+  ['cabeçalho Referrer-Policy no firebase.json', firebaseJson.includes('strict-origin-when-cross-origin')],
+  ['função de cópia segura de lote no JS', app.includes('function copyBatchItemText(')],
+  ['função de abertura segura de WhatsApp em lote no JS', app.includes('function openBatchItemWhatsApp(')],
+  ['função de reinicialização segura de assistente por card no JS', app.includes('function startWizardFromCard(')],
+  ['proteção contra fallback indevido em getSuperAdminUser', !app.includes('|| users[0]')]
 ];
 
 const failedUserTests = userRequirements.filter(([, passed]) => !passed).map(([name]) => name);

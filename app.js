@@ -130,7 +130,7 @@ function findUserRecord(emailOrUidOrName) {
 function getSuperAdminUser() {
   const users = getRegisteredUsers();
   if (!users.length) return null;
-  return users.find(u => u.role === 'admin' || u.role === 'superadmin' || SUPER_ADMIN_EMAILS.includes(u.email)) || users[0];
+  return users.find(u => SUPER_ADMIN_EMAILS.includes(String(u.email || '').toLowerCase()) || u.role === 'admin' || u.role === 'superadmin') || null;
 }
 
 function isSuperUser(emailOrUid) {
@@ -139,7 +139,7 @@ function isSuperUser(emailOrUid) {
   if (SUPER_ADMIN_EMAILS.includes(term)) return true;
 
   const session = getAuthSession();
-  if (session && (session.user === term || session.uid === term) && (session.role === 'admin' || session.role === 'superadmin')) {
+  if (session && (String(session.user || '').toLowerCase() === term || String(session.uid || '').toLowerCase() === term) && (session.role === 'admin' || session.role === 'superadmin')) {
     return true;
   }
 
@@ -149,7 +149,7 @@ function isSuperUser(emailOrUid) {
   }
 
   const superUser = getSuperAdminUser();
-  if (superUser && ((superUser.email && superUser.email.toLowerCase() === term) || (superUser.uid && superUser.uid === term))) {
+  if (superUser && ((superUser.email && superUser.email.toLowerCase() === term) || (superUser.uid && superUser.uid === term)) && (superUser.role === 'admin' || superUser.role === 'superadmin' || SUPER_ADMIN_EMAILS.includes(String(superUser.email).toLowerCase()))) {
     return true;
   }
 
@@ -488,8 +488,7 @@ async function handleRegisterSubmit(e) {
 
     const users = getRegisteredUsers();
     const isExplicitSuper = SUPER_ADMIN_EMAILS.includes(email);
-    const hasSuperAdmin = users.some(u => u.role === 'admin' || u.role === 'superadmin' || SUPER_ADMIN_EMAILS.includes(u.email));
-    const isFirstAdmin = !hasSuperAdmin || isExplicitSuper;
+    const isFirstAdmin = isExplicitSuper;
 
     const nowIso = new Date().toISOString();
     const newUser = {
@@ -1002,26 +1001,26 @@ function renderAdminUsersTable() {
     if (isRootAdmin) {
       actionsHTML = `
         <span class="log-dim" style="font-size: 0.76rem; font-weight: 700; color: #ffd700;">👑 Admin Mestre</span>
-        <button class="admin-btn-action btn-details" onclick="viewUserDetailsAction('${emailEsc}')" title="Ver Detalhes">📄 Detalhes</button>
+        <button class="admin-btn-action btn-details" data-action="details" data-email="${emailEsc}" title="Ver Detalhes">📄 Detalhes</button>
       `;
     } else {
       let statusBtns = '';
       if (statusClean === 'pending') {
         statusBtns = `
-          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Aprovar usuário">✅ Aprovar</button>
-          <button class="admin-btn-action btn-reject" onclick="openRejectUserModal('${emailEsc}')" title="Rejeitar usuário com motivo">❌ Rejeitar</button>
+          <button class="admin-btn-action btn-approve" data-action="approve" data-email="${emailEsc}" title="Aprovar usuário">✅ Aprovar</button>
+          <button class="admin-btn-action btn-reject" data-action="reject" data-email="${emailEsc}" title="Rejeitar usuário com motivo">❌ Rejeitar</button>
         `;
       } else if (statusClean === 'approved') {
         statusBtns = `
-          <button class="admin-btn-action btn-block" onclick="blockUserAction('${emailEsc}')" title="Bloquear acesso deste usuário">🚫 Bloquear</button>
+          <button class="admin-btn-action btn-block" data-action="block" data-email="${emailEsc}" title="Bloquear acesso deste usuário">🚫 Bloquear</button>
         `;
       } else if (statusClean === 'blocked') {
         statusBtns = `
-          <button class="admin-btn-action btn-unblock" onclick="unblockUserAction('${emailEsc}')" title="Desbloquear acesso deste usuário">🔓 Desbloquear</button>
+          <button class="admin-btn-action btn-unblock" data-action="unblock" data-email="${emailEsc}" title="Desbloquear acesso deste usuário">🔓 Desbloquear</button>
         `;
       } else if (statusClean === 'rejected') {
         statusBtns = `
-          <button class="admin-btn-action btn-approve" onclick="approveUserAction('${emailEsc}')" title="Reavaliar e aprovar">✅ Aprovar</button>
+          <button class="admin-btn-action btn-approve" data-action="approve" data-email="${emailEsc}" title="Reavaliar e aprovar">✅ Aprovar</button>
         `;
       }
 
@@ -1030,10 +1029,10 @@ function renderAdminUsersTable() {
 
       actionsHTML = `
         ${statusBtns}
-        <button class="admin-btn-action btn-role" onclick="toggleRoleUserAction('${emailEsc}')" title="${toggleRoleTitle}">${toggleRoleText}</button>
-        <button class="admin-btn-action btn-details" onclick="viewUserDetailsAction('${emailEsc}')" title="Ver detalhes completos e auditoria">📄 Detalhes</button>
-        <button class="admin-btn-action btn-edit" onclick="editUserAction('${emailEsc}')" title="Editar dados cadastrais">✏️ Editar</button>
-        <button class="admin-btn-action btn-delete" onclick="deleteUserAction('${emailEsc}')" title="Excluir usuário">🗑️ Excluir</button>
+        <button class="admin-btn-action btn-role" data-action="role" data-email="${emailEsc}" title="${toggleRoleTitle}">${toggleRoleText}</button>
+        <button class="admin-btn-action btn-details" data-action="details" data-email="${emailEsc}" title="Ver detalhes completos e auditoria">📄 Detalhes</button>
+        <button class="admin-btn-action btn-edit" data-action="edit" data-email="${emailEsc}" title="Editar dados cadastrais">✏️ Editar</button>
+        <button class="admin-btn-action btn-delete" data-action="delete" data-email="${emailEsc}" title="Excluir usuário">🗑️ Excluir</button>
       `;
     }
 
@@ -1517,6 +1516,28 @@ function initializeAuth() {
       if (adminSearchInput) adminSearchInput.value = '';
       adminSearchClearBtn.style.display = 'none';
       renderAdminUsersTable();
+    });
+  }
+
+  const adminTableContainer = document.getElementById('adminUsersTableContainer');
+  if (adminTableContainer) {
+    adminTableContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('.admin-btn-action');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const email = btn.dataset.email;
+      if (!action || !email) return;
+      e.preventDefault();
+      switch (action) {
+        case 'approve': approveUserAction(email); break;
+        case 'reject': openRejectUserModal(email); break;
+        case 'block': blockUserAction(email); break;
+        case 'unblock': unblockUserAction(email); break;
+        case 'role': toggleRoleUserAction(email); break;
+        case 'details': viewUserDetailsAction(email); break;
+        case 'edit': editUserAction(email); break;
+        case 'delete': deleteUserAction(email); break;
+      }
     });
   }
 
@@ -2530,7 +2551,8 @@ function handleGeminiRemove() {
  */
 function renderGeneratedOutput(genData) {
   const { id, clientData, versions } = genData;
-  const cleanPhone = clientData.telefone ? (clientData.telefone.length === 11 || clientData.telefone.length === 10 ? '55' + clientData.telefone : clientData.telefone) : '';
+  const rawPhone = String(clientData.telefone || '').replace(/[^\d]/g, '');
+  const cleanPhone = rawPhone ? (rawPhone.length === 11 || rawPhone.length === 10 ? '55' + rawPhone : rawPhone) : '';
 
   const cardHTML = `
     <div class="message-card" id="card-${id}">
@@ -2556,8 +2578,8 @@ function renderGeneratedOutput(genData) {
 
       <div class="card-actions">
         <button class="card-btn btn-copy" onclick="copyMessageText(${id})">📋 Copiar Mensagem</button>
-        ${cleanPhone ? `<button class="card-btn btn-whatsapp" onclick="openWhatsApp('${cleanPhone}', ${id})">💬 Enviar via WhatsApp (${clientData.telefone})</button>` : `<button class="card-btn btn-whatsapp" onclick="openWhatsApp('', ${id})">💬 Abrir no WhatsApp</button>`}
-        <button class="card-btn" onclick="startWizard('${escapeHTML(clientData.nome)}', '${escapeHTML(clientData.medicamento)}')">🔄 Novo Ajuste</button>
+        ${cleanPhone ? `<button class="card-btn btn-whatsapp" onclick="openWhatsApp('${cleanPhone}', ${id})">💬 Enviar via WhatsApp (${escapeHTML(clientData.telefone)})</button>` : `<button class="card-btn btn-whatsapp" onclick="openWhatsApp('', ${id})">💬 Abrir no WhatsApp</button>`}
+        <button class="card-btn" onclick="startWizardFromCard(${id})">🔄 Novo Ajuste</button>
       </div>
     </div>
   `;
@@ -2571,9 +2593,22 @@ function renderGeneratedOutput(genData) {
   if (cardElem) {
     cardElem.dataset.versions = JSON.stringify(versions);
     cardElem.dataset.activeTone = 'empatico';
+    cardElem.dataset.clientNome = clientData.nome || '';
+    cardElem.dataset.clientMed = clientData.medicamento || '';
   }
 
   scrollToBottom();
+}
+
+function startWizardFromCard(id) {
+  const cardElem = document.getElementById(`card-${id}`);
+  if (!cardElem) {
+    startWizard();
+    return;
+  }
+  const nome = cardElem.dataset.clientNome || '';
+  const med = cardElem.dataset.clientMed || '';
+  startWizard(nome, med);
 }
 
 function switchToneTab(id, toneKey) {
@@ -3002,8 +3037,34 @@ function handleBatchSubmit(e) {
   renderBatchOutput(generatedBatch);
 }
 
+window.batchMessagesStore = window.batchMessagesStore || {};
+
+function copyBatchItemText(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+  const cleanMsg = (item.messageText || '').replace(/\*\*/g, '').replace(/\*/g, '');
+  copyTextToClipboard(cleanMsg, `✅ Mensagem de ${escapeHTML(item.clientData?.nome || 'cliente')} copiada!`);
+}
+
+function openBatchItemWhatsApp(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+  const rawPhone = String(item.clientData?.telefone || '').replace(/[^\d]/g, '');
+  const cleanPhone = rawPhone ? (rawPhone.length === 11 || rawPhone.length === 10 ? '55' + rawPhone : rawPhone) : '';
+  const text = (item.messageText || '').replace(/\*\*/g, '*');
+  const encodedText = encodeURIComponent(text);
+  const waUrl = cleanPhone ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}` : `https://api.whatsapp.com/send?text=${encodedText}`;
+  window.open(waUrl, '_blank', 'noopener,noreferrer');
+  appendLog('🚀 Abrindo WhatsApp para envio...', 'log-info');
+}
+
 function renderBatchOutput(batchList) {
   const batchId = Date.now();
+  window.batchMessagesStore[batchId] = batchList;
+  window[`batch_data_${batchId}`] = batchList;
+
   let listHTML = `
     <div class="wizard-box" id="batch-container-${batchId}">
       <div class="wizard-title" style="color: var(--text-bright);">
@@ -3015,10 +3076,6 @@ function renderBatchOutput(batchList) {
   `;
 
   batchList.forEach((item, idx) => {
-    const cleanPhone = item.clientData.telefone ? (item.clientData.telefone.length === 11 || item.clientData.telefone.length === 10 ? '55' + item.clientData.telefone : item.clientData.telefone) : '';
-    const encodedText = encodeURIComponent(item.messageText.replace(/\*\*/g, '*'));
-    const waUrl = cleanPhone ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}` : `https://api.whatsapp.com/send?text=${encodedText}`;
-
     listHTML += `
       <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
@@ -3028,8 +3085,8 @@ function renderBatchOutput(batchList) {
         </div>
         <div style="white-space: pre-wrap; font-size: 0.88rem; background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-bright); margin-bottom: 8px;">${escapeHTML(item.messageText)}</div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="card-btn btn-whatsapp" onclick="window.open('${waUrl}', '_blank')">💬 Enviar WhatsApp (${escapeHTML(item.clientData.telefone || 'Sem número')})</button>
-          <button class="card-btn btn-copy" onclick="copyTextToClipboard('${escapeHTML(item.messageText.replace(/\*\*/g, '').replace(/\*/g, ''))}', '✅ Copiado mensagem de ${escapeHTML(item.clientData.nome)}');">📋 Copiar Texto</button>
+          <button class="card-btn btn-whatsapp" onclick="openBatchItemWhatsApp(${batchId}, ${idx})">💬 Enviar WhatsApp (${escapeHTML(item.clientData.telefone || 'Sem número')})</button>
+          <button class="card-btn btn-copy" onclick="copyBatchItemText(${batchId}, ${idx})">📋 Copiar Texto</button>
         </div>
       </div>
     `;
@@ -3045,8 +3102,6 @@ function renderBatchOutput(batchList) {
   const container = document.createElement('div');
   container.innerHTML = listHTML;
   terminalOutput.appendChild(container);
-
-  window[`batch_data_${batchId}`] = batchList;
   scrollToBottom();
 }
 
@@ -3643,13 +3698,14 @@ function openWhatsApp(phone, id) {
   const rawVal = versions[activeTone];
   const text = (typeof rawVal === 'object' ? rawVal.text : rawVal).replace(/\*\*/g, '*');
   const encodedText = encodeURIComponent(text);
+  const sanitizedPhone = String(phone || '').replace(/[^\d]/g, '');
 
   let url = '';
-  if (phone) {
-    url = `https://api.whatsapp.com/send?phone=${phone}&text=${encodedText}`;
+  if (sanitizedPhone) {
+    url = `https://api.whatsapp.com/send?phone=${sanitizedPhone}&text=${encodedText}`;
   } else {
     url = `https://api.whatsapp.com/send?text=${encodedText}`;
   }
-  window.open(url, '_blank');
+  window.open(url, '_blank', 'noopener,noreferrer');
   appendLog(`🚀 Abrindo WhatsApp para envio...`, 'log-info');
 }
