@@ -2031,6 +2031,18 @@ const GEMINI_RESPONSE_SCHEMA = {
   },
   required: ['empatico', 'atencioso', 'descontraido', 'pos_tratamento']
 };
+const GEMINI_BATCH_RESPONSE_SCHEMA = {
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      index: { type: 'INTEGER' },
+      nome: { type: 'STRING' },
+      mensagem: { type: 'STRING' }
+    },
+    required: ['index', 'nome', 'mensagem']
+  }
+};
 const GEMINI_FAILURE_RESET_MS = 10 * 60 * 1000;
 const GEMINI_FAILURE_THRESHOLD = 3;
 
@@ -2096,13 +2108,24 @@ function getGeminiEndpoint(apiKey) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
 }
 
-async function callGeminiAPI(promptText) {
+async function callGeminiAPI(promptText, customSchema = null) {
   const apiKey = localStorage.getItem('apoio_gemini_api_key') || '';
   if (!apiKey) {
     throw new Error("Chave de API do Gemini não configurada. Digite 'apikey SUACHAVE' no terminal.");
   }
 
   const endpoint = getGeminiEndpoint(apiKey);
+  const schemaToUse = customSchema !== null && customSchema !== undefined ? customSchema : GEMINI_RESPONSE_SCHEMA;
+
+  const generationConfig = {
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    responseMimeType: 'application/json'
+  };
+
+  if (schemaToUse) {
+    generationConfig.responseSchema = schemaToUse;
+  }
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -2111,12 +2134,7 @@ async function callGeminiAPI(promptText) {
       contents: [{
         parts: [{ text: promptText }]
       }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_RESPONSE_SCHEMA
-      }
+      generationConfig: generationConfig
     })
   });
 
@@ -2968,17 +2986,351 @@ function simpleStringHash(str) {
   return 'SIG_' + Math.abs(hash).toString(36);
 }
 
+function sanitizeGeminiBatchJsonResponse(rawText, expectedCount, startIndex = 0) {
+  if (!rawText || typeof rawText !== 'string') {
+    return new Array(expectedCount).fill(null);
+  }
+
+  const cleanVal = (v) => {
+    if (typeof v !== 'string') return v ? String(v) : '';
+    return v.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
+  };
+
+  const results = new Array(expectedCount).fill(null);
+
+  const extractMessageFromItem = (item) => {
+    if (!item) return '';
+    if (typeof item === 'string') return cleanVal(item);
+    if (typeof item === 'object') {
+      const direct = item.mensagem || item.message || item.texto || item.text || item.conteudo || item.msg || item.atencioso || item.empatico;
+      if (typeof direct === 'string' && direct.trim()) return cleanVal(direct);
+      for (const val of Object.values(item)) {
+        if (typeof val === 'string' && val.trim().length > 15) {
+          return cleanVal(val);
+        }
+      }
+    }
+    return '';
+  };
+
+  let cleaned = rawText.replace(/^```(?:json)?/gim, '').replace(/```$/gim, '').trim();
+
+  const candidates = [];
+  const k1 = cleaned.indexOf('['), k2 = cleaned.lastIndexOf(']');
+  if (k1 !== -1 && k2 > k1) candidates.push(cleaned.slice(k1, k2 + 1));
+  const b1 = cleaned.indexOf('{'), b2 = cleaned.lastIndexOf('}');
+  if (b1 !== -1 && b2 > b1) candidates.push(cleaned.slice(b1, b2 + 1));
+  candidates.push(cleaned);
+
+  for (const cand of candidates) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(cand);
+    } catch (e) {
+      try {
+        const sanitized = cand.replace(/"(?:[^"\\]|\\.)*"/gs, (m) => m.replace(/\r?\n/g, '\\n'));
+        parsed = JSON.parse(sanitized);
+      } catch (e2) {}
+    }
+
+    if (parsed) {
+      if (Array.isArray(parsed)) {
+        parsed.forEach((entry, idx) => {
+          let targetIdx = idx;
+          if (entry && typeof entry === 'object' && entry.index !== undefined) {
+            const numIdx = Number(entry.index);
+            if (!isNaN(numIdx)) {
+              targetIdx = numIdx >= startIndex ? numIdx - startIndex : numIdx;
+            }
+          }
+          if (targetIdx >= 0 && targetIdx < expectedCount) {
+            const msg = extractMessageFromItem(entry);
+            if (msg && !results[targetIdx]) results[targetIdx] = msg;
+          }
+        });
+        if (results.some(r => r !== null)) return results;
+      } else if (typeof parsed === 'object') {
+        const list = parsed.mensagens || parsed.messages || parsed.items || parsed.lote || parsed.clientes || parsed.data;
+        if (Array.isArray(list)) {
+          list.forEach((entry, idx) => {
+            let targetIdx = idx;
+            if (entry && typeof entry === 'object' && entry.index !== undefined) {
+              const numIdx = Number(entry.index);
+              if (!isNaN(numIdx)) {
+                targetIdx = numIdx >= startIndex ? numIdx - startIndex : numIdx;
+              }
+            }
+            if (targetIdx >= 0 && targetIdx < expectedCount) {
+              const msg = extractMessageFromItem(entry);
+              if (msg && !results[targetIdx]) results[targetIdx] = msg;
+            }
+          });
+          if (results.some(r => r !== null)) return results;
+        } else {
+          Object.entries(parsed).forEach(([k, v]) => {
+            const numIdx = Number(k);
+            if (!isNaN(numIdx)) {
+              const targetIdx = numIdx >= startIndex ? numIdx - startIndex : numIdx;
+              if (targetIdx >= 0 && targetIdx < expectedCount) {
+                const msg = extractMessageFromItem(v);
+                if (msg && !results[targetIdx]) results[targetIdx] = msg;
+              }
+            }
+          });
+          if (results.some(r => r !== null)) return results;
+        }
+      }
+    }
+  }
+
+  // Fallback com regex
+  const msgRegex = /"mensagem"\s*:\s*"((?:[^"\\]|\\.)*)"/gi;
+  let m;
+  let regexIdx = 0;
+  while ((m = msgRegex.exec(cleaned)) !== null && regexIdx < expectedCount) {
+    if (!results[regexIdx]) {
+      results[regexIdx] = cleanVal(m[1]);
+    }
+    regexIdx++;
+  }
+
+  return results;
+}
+
+async function generateBatchMessagesAI(items, options = {}) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const drogaria = options.drogaria || DEFAULT_CONFIG.drogaria;
+  const farmaceutico = options.farmaceutico || DEFAULT_CONFIG.farmaceutico;
+  const tom = options.tom || 'equilibrado';
+  const customInstruction = (options.customInstruction || options.customPrompt || '').trim();
+
+  let tomGuidance = 'Tom equilibrado, profissional e humanizado (padrão de atenção farmacêutica de excelência).';
+  if (tom === 'empatico') {
+    tomGuidance = 'Tom estritamente empático, acolhedor e humanizado. Priorize o bem-estar e o alívio de eventuais desconfortos.';
+  } else if (tom === 'atencioso') {
+    tomGuidance = 'Tom atencioso, técnico e clínico. Enfatize a adesão aos horários, posologia e recomendações farmacêuticas.';
+  } else if (tom === 'descontraido') {
+    tomGuidance = 'Tom leve, descontraído e próximo, usando linguagem calorosa e amigável para o dia a dia.';
+  } else if (tom === 'pos_tratamento') {
+    tomGuidance = 'Tom focado em pós-atendimento e acompanhamento final. Pergunte se o tratamento foi concluído com sucesso e se há dúvidas.';
+  }
+
+  const extraInstructionPrompt = customInstruction 
+    ? `\n6. DIRETRIZ EXTRA DO FARMACÊUTICO RESPONSÁVEL: "${customInstruction}". Aplique de forma natural nas mensagens onde for pertinente.`
+    : '';
+
+  const CHUNK_SIZE = 8;
+  const results = [];
+
+  for (let chunkStart = 0; chunkStart < items.length; chunkStart += CHUNK_SIZE) {
+    const chunkItems = items.slice(chunkStart, chunkStart + CHUNK_SIZE);
+
+    const clientsDescription = chunkItems.map((item, idx) => {
+      const globalIdx = chunkStart + idx;
+      const nome = capitalizeName(item.nome || 'Cliente');
+      const med = item.medicamento || 'Atendimento';
+      const classification = classifyItem(med, item.tipoOverride || 'auto');
+      const sintoma = item.sintoma ? ` | Sintoma/Obs: ${item.sintoma}` : '';
+      const tempo = item.tempo ? ` | Tempo: ${item.tempo}` : '';
+      const dica = item.dica ? ` | Dica: ${item.dica}` : '';
+      return `[Cliente ${globalIdx}] Nome: ${nome} | Item: ${med} (${classification.label})${sintoma}${tempo}${dica}`;
+    }).join('\n');
+
+    const prompt = `
+Você é o Farmacêutico ${farmaceutico} da filial ${drogaria}.
+Sua missão é gerar mensagens de acompanhamento farmacêutico pós-venda/pós-atendimento via WhatsApp para a lista de clientes abaixo usando inteligência artificial.
+
+DIRETRIZ DE ESTILO / TOM:
+${tomGuidance}
+
+REGRAS OBRIGATÓRIAS ANTI-SPAM E CLÍNICAS:
+1. Cada mensagem DEVE ser estritamente humanizada, ética, acolhedora e personalizada para o medicamento ou procedimento do cliente.
+2. WhatsApp Safe / Anti-Spam: NENHUMA mensagem pode ser idêntica a outra. Alterne saudações, construções de frases, perguntas sobre o bem-estar e despedidas acolhedoras.
+3. Formatação WhatsApp: use quebras de linha limpas, negrito (*palavra*) onde necessário e emojis adequados com moderação.
+4. Responda ESTRITAMENTE em formato JSON (Array de objetos) sem explicações ou markdown fora do JSON.
+5. Cada item do array deve ter exatamente as propriedades: "index" (número do cliente), "nome" (nome do cliente) e "mensagem" (texto completo da mensagem para o WhatsApp).${extraInstructionPrompt}
+
+CLIENTES PARA PROCESSAR:
+${clientsDescription}
+
+FORMATO JSON EXATO:
+[
+  {
+    "index": ${chunkStart},
+    "nome": "${chunkItems[0]?.nome || 'Cliente'}",
+    "mensagem": "Olá, ...! Aqui é o farmacêutico ${farmaceutico}... Como você está se sentindo..."
+  }
+]
+`;
+
+    let chunkMessages = [];
+    try {
+      const rawText = await callGeminiAPI(prompt, GEMINI_BATCH_RESPONSE_SCHEMA);
+      chunkMessages = sanitizeGeminiBatchJsonResponse(rawText, chunkItems.length, chunkStart);
+    } catch (err) {
+      appendLog(`⚠️ <strong>Gemini IA:</strong> falha no bloco de clientes ${chunkStart + 1} a ${chunkStart + chunkItems.length} (${escapeHTML(err.message)}) → Usando fallback local para este bloco.`, 'log-warning');
+      chunkMessages = new Array(chunkItems.length).fill(null);
+    }
+
+    chunkItems.forEach((itemData, localIdx) => {
+      const globalIdx = chunkStart + localIdx;
+      const aiMessageText = chunkMessages[localIdx];
+      const nome = capitalizeName(itemData.nome || 'Cliente');
+      const item = itemData.medicamento || 'Atendimento';
+      const classification = classifyItem(item, itemData.tipoOverride || 'auto');
+
+      if (aiMessageText && typeof aiMessageText === 'string' && aiMessageText.trim().length > 10) {
+        const zeroWidthPadding = '\u200B'.repeat((globalIdx + 1) % 5 + 1);
+        const finalMessage = `${aiMessageText.trim()}${zeroWidthPadding}`;
+        const uniqueHash = simpleStringHash(finalMessage);
+        usedMessageHashes.add(uniqueHash);
+
+        results.push({
+          id: Date.now() + Math.random(),
+          timestamp: new Date().toLocaleString('pt-BR'),
+          clientData: {
+            nome,
+            medicamento: item,
+            drogaria: itemData.drogaria || drogaria,
+            farmaceutico: itemData.farmaceutico || farmaceutico,
+            telefone: itemData.telefone ? itemData.telefone.replace(/\D/g, '') : '',
+            sintoma: itemData.sintoma || '',
+            tempo: itemData.tempo || '',
+            dica: itemData.dica || '',
+            classification
+          },
+          messageText: finalMessage,
+          hashSignature: uniqueHash,
+          isAI: true,
+          tom: tom
+        });
+      } else {
+        const fallbackItem = generateUniqueAntiSpamMessage(itemData, globalIdx);
+        fallbackItem.isAI = false;
+        results.push(fallbackItem);
+      }
+    });
+  }
+
+  return results;
+}
+
+async function generateBatchMessagesSmart(items, options = {}) {
+  const apiKey = localStorage.getItem('apoio_gemini_api_key');
+  const forceLocal = options.useAI === false || options.forceLocal === true;
+
+  if (!apiKey || forceLocal) {
+    if (!apiKey && !forceLocal) {
+      appendLog(`ℹ️ <strong>Gemini IA:</strong> Chave não configurada. Usando gerador anti-spam local.`, 'log-info');
+    }
+    return items.map((item, idx) => {
+      const res = generateUniqueAntiSpamMessage(item, idx);
+      res.isAI = false;
+      return res;
+    });
+  }
+
+  if (isGeminiTemporarilyBlocked()) {
+    appendLog(`🛑 <strong>Gemini IA bloqueada temporariamente.</strong> Usando gerador anti-spam local de fallback.`, 'log-warning');
+    return items.map((item, idx) => {
+      const res = generateUniqueAntiSpamMessage(item, idx);
+      res.isAI = false;
+      return res;
+    });
+  }
+
+  appendLog(`🤖 <strong>Gemini IA:</strong> Gerando mensagens personalizadas em lote para <strong>${items.length}</strong> cliente(s)...`, 'log-info');
+
+  try {
+    const aiResults = await generateBatchMessagesAI(items, options);
+    resetGeminiFailureState();
+    appendLog(`✨ Lote processado via <strong>Gemini IA</strong> com sucesso!`, 'log-success');
+    return aiResults;
+  } catch (err) {
+    registerGeminiFailure(err);
+    appendLog(`⚠️ <strong>Gemini IA indisponível para o lote:</strong> ${escapeHTML(err.message)} → Usando gerador anti-spam local de fallback.`, 'log-warning');
+    return items.map((item, idx) => {
+      const res = generateUniqueAntiSpamMessage(item, idx);
+      res.isAI = false;
+      return res;
+    });
+  }
+}
+
+function toggleBatchAiOptions(isChecked) {
+  const block = document.getElementById('batchAiOptionsBlock');
+  if (block) {
+    block.style.display = isChecked ? 'grid' : 'none';
+  }
+}
+
+function saveInlineBatchGeminiKey() {
+  const input = document.getElementById('batchInlineApiKey');
+  const key = input ? input.value.trim() : '';
+  if (!key) {
+    appendLog('⚠️ Por favor, informe uma chave de API válida.', 'log-warning');
+    return;
+  }
+  localStorage.setItem('apoio_gemini_api_key', key);
+  resetGeminiFailureState();
+  updateAIStatus();
+  appendLog('✨ Chave do Gemini configurada com sucesso! IA ativada no painel em lote.', 'log-success');
+  startBatchWizard();
+}
+
 function startBatchWizard() {
+  const hasApiKey = Boolean(localStorage.getItem('apoio_gemini_api_key'));
+  const isBlocked = isGeminiTemporarilyBlocked();
+  const isAiActive = hasApiKey && !isBlocked;
+
   const wizardHTML = `
     <div class="wizard-box" id="wizardBox">
       <div class="wizard-title" style="color: var(--warning-color);">
-        <span>📦 Gerador em Lote Anti-Spam (WhatsApp Safe)</span>
+        <span>📦 Gerador em Lote Inteligente (WhatsApp + Gemini IA)</span>
       </div>
       <p class="log-dim" style="margin-bottom: 10px;">
         🛡️ <strong>Proteção Anti-Bloqueio:</strong> Cada mensagem é gerada com arranjos semânticos e marcas invisíveis exclusivas. <strong>Nenhuma mensagem é idêntica a outra</strong>, evitando gatilhos de spam do WhatsApp.
       </p>
 
+      <div class="batch-ai-status-banner" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; border: 1px solid ${isAiActive ? 'rgba(0, 255, 204, 0.4)' : 'var(--border-color)'}; background: ${isAiActive ? 'rgba(0, 255, 204, 0.06)' : 'var(--bg-card)'}; font-size: 0.82rem; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+          <div>
+            ${isAiActive 
+              ? `✨ <strong style="color: #00ffcc;">Gemini IA Ativo (${escapeHTML(GEMINI_MODEL_LABEL)}):</strong> As mensagens serão redigidas e personalizadas com Inteligência Artificial para cada cliente.` 
+              : `🛡️ <strong style="color: var(--text-dim);">Motor Anti-Spam Local:</strong> Usando templates parametrizados. <span style="font-size: 0.75rem;">(Ative a IA abaixo ou em <a href="javascript:void(0)" onclick="openGeminiConfigPanel()" style="color: var(--prompt-color); text-decoration: underline;">Configurações</a>)</span>`}
+          </div>
+          ${isAiActive ? `
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer; white-space: nowrap; color: #00ffcc; font-weight: 600;">
+            <input type="checkbox" id="batchUseAiCheckbox" checked onchange="toggleBatchAiOptions(this.checked)"> Usar IA Gemini
+          </label>` : ''}
+        </div>
+        ${!isAiActive ? `
+        <div class="batch-key-quick-form" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+          <span style="font-size: 0.78rem; color: var(--text-bright);">🔑 Ativar Gemini IA no Lote:</span>
+          <input type="password" id="batchInlineApiKey" placeholder="Cole sua chave da API Gemini (AIzaSy...)" style="flex: 1; min-width: 220px; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-bright);">
+          <button type="button" class="tool-btn primary" onclick="saveInlineBatchGeminiKey()" style="font-size: 0.78rem; padding: 5px 12px; background: #00ffcc; color: #000; font-weight: 700;">✨ Salvar & Ativar IA</button>
+        </div>` : ''}
+      </div>
+
       <form id="batchForm" onsubmit="handleBatchSubmit(event)">
+        <div class="form-row" id="batchAiOptionsBlock" style="${isAiActive ? 'display: grid;' : 'display: none;'} margin-bottom: 12px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>✨ Tom de Voz da IA Gemini:</label>
+            <select id="batchAiToneSelect">
+              <option value="equilibrado" selected>🌟 Equilibrado (Padrão Humanizado)</option>
+              <option value="empatico">💖 Empático & Acolhedor (Alívio & Cuidado)</option>
+              <option value="atencioso">🩺 Atencioso & Clínico (Horários & Adesão)</option>
+              <option value="descontraido">😊 Descontraído & Leve (Linguagem Próxima)</option>
+              <option value="pos_tratamento">🔄 Pós-Tratamento & Retorno (Acompanhamento)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>💡 Instruções Extras para o Gemini (Opcional):</label>
+            <input type="text" id="batchCustomInstruction" placeholder="Ex: Lembrar de tomar com água, reforçar repouso...">
+          </div>
+        </div>
+
         <div class="form-group">
           <label>📝 Cole a Lista de Clientes (Um por linha):</label>
           <div class="log-dim" style="font-size: 0.78rem; margin-bottom: 6px;">
@@ -2988,7 +3340,7 @@ function startBatchWizard() {
         </div>
 
         <div class="form-actions">
-          <button type="submit" class="tool-btn primary" style="background: var(--warning-color); color: #000;">🚀 Gerar Mensagens Únicas sem Repetição</button>
+          <button type="submit" id="batchSubmitBtn" class="tool-btn primary" style="background: var(--warning-color); color: #000;">🚀 Gerar Mensagens em Lote (WhatsApp Safe)</button>
           <button type="button" class="tool-btn danger" onclick="cancelWizard()">Cancelar</button>
         </div>
       </form>
@@ -3003,9 +3355,10 @@ function startBatchWizard() {
   terminalOutput.appendChild(container);
   scrollToBottom();
 }
-function handleBatchSubmit(e) {
+
+async function handleBatchSubmit(e) {
   e.preventDefault();
-  const text = document.getElementById('batchInputText').value.trim();
+  const text = document.getElementById('batchInputText')?.value.trim();
   if (!text) return;
 
   const lines = text.split('\n').filter(l => l.trim().length > 0);
@@ -3028,16 +3381,32 @@ function handleBatchSubmit(e) {
     return;
   }
 
-  const generatedBatch = items.map((item, idx) => generateUniqueAntiSpamMessage(item, idx));
+  const useAiCheckbox = document.getElementById('batchUseAiCheckbox');
+  const useAI = useAiCheckbox ? useAiCheckbox.checked : Boolean(localStorage.getItem('apoio_gemini_api_key'));
+  const tomSelect = document.getElementById('batchAiToneSelect');
+  const tom = tomSelect ? tomSelect.value : 'equilibrado';
+  const customInstructionInput = document.getElementById('batchCustomInstruction');
+  const customInstruction = customInstructionInput ? customInstructionInput.value.trim() : '';
+
+  const submitBtn = document.getElementById('batchSubmitBtn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `⏳ Gerando mensagens ${useAI ? 'com IA Gemini (' + escapeHTML(tom) + ')' : ''}...`;
+  }
 
   const wiz = document.getElementById('wizardBox');
   if (wiz) wiz.remove();
 
-  appendLog(`🚀 Lote de <strong>${generatedBatch.length}</strong> mensagem(ns) única(s) e anti-spam gerado com sucesso!`, 'log-success');
-  renderBatchOutput(generatedBatch);
+  const generatedBatch = await generateBatchMessagesSmart(items, { useAI, tom, customInstruction });
+
+  const aiCount = generatedBatch.filter(b => b.isAI).length;
+  const badgeInfo = aiCount > 0 ? `com <strong>IA Gemini</strong> (${aiCount}/${generatedBatch.length})` : `com motor anti-spam local`;
+  appendLog(`🚀 Lote de <strong>${generatedBatch.length}</strong> mensagem(ns) única(s) ${badgeInfo} gerado com sucesso!`, 'log-success');
+  renderBatchOutput(generatedBatch, { tom, customInstruction });
 }
 
 window.batchMessagesStore = window.batchMessagesStore || {};
+window.batchOptionsStore = window.batchOptionsStore || {};
 
 function copyBatchItemText(batchId, itemIdx) {
   const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
@@ -3060,41 +3429,233 @@ function openBatchItemWhatsApp(batchId, itemIdx) {
   appendLog('🚀 Abrindo WhatsApp para envio...', 'log-info');
 }
 
-function renderBatchOutput(batchList) {
+async function regenerateBatchItemWithAI(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+
+  const apiKey = localStorage.getItem('apoio_gemini_api_key');
+  if (!apiKey) {
+    appendLog('⚠️ Configure uma chave de API do Gemini para regenerar com inteligência artificial.', 'log-warning');
+    openGeminiConfigPanel();
+    return;
+  }
+
+  const msgDiv = document.getElementById(`batch-msg-text-${batchId}-${itemIdx}`);
+  const regenBtn = document.getElementById(`batch-regen-btn-${batchId}-${itemIdx}`);
+
+  if (regenBtn) {
+    regenBtn.disabled = true;
+    regenBtn.innerHTML = '⏳ Gerando IA...';
+  }
+  if (msgDiv) {
+    msgDiv.style.opacity = '0.5';
+  }
+
+  appendLog(`🤖 <strong>Gemini IA:</strong> Regenerando mensagem personalizada para <strong>${escapeHTML(item.clientData.nome)}</strong>...`, 'log-info');
+
+  try {
+    const savedOpts = (window.batchOptionsStore && window.batchOptionsStore[batchId]) || {};
+    const rawResults = await generateBatchMessagesAI([item.clientData], {
+      drogaria: item.clientData.drogaria,
+      farmaceutico: item.clientData.farmaceutico,
+      tom: item.tom || savedOpts.tom || 'equilibrado',
+      customInstruction: savedOpts.customInstruction || ''
+    });
+
+    if (rawResults && rawResults[0] && rawResults[0].messageText) {
+      item.messageText = rawResults[0].messageText;
+      item.hashSignature = rawResults[0].hashSignature;
+      item.isAI = true;
+
+      if (msgDiv) {
+        msgDiv.textContent = item.messageText;
+        msgDiv.style.opacity = '1';
+      }
+      const hashSpan = document.getElementById(`batch-hash-${batchId}-${itemIdx}`);
+      if (hashSpan) {
+        hashSpan.textContent = item.hashSignature;
+      }
+      const badgeDiv = document.getElementById(`batch-badge-${batchId}-${itemIdx}`);
+      if (badgeDiv) {
+        badgeDiv.innerHTML = `<span class="badge-tag" style="background: rgba(0, 255, 204, 0.15); color: #00ffcc; border-color: rgba(0, 255, 204, 0.4); font-size: 0.72rem; padding: 2px 6px; border-radius: 3px;">✨ Gemini IA</span>`;
+      }
+      appendLog(`✨ Mensagem de <strong>${escapeHTML(item.clientData.nome)}</strong> regenerada com sucesso via Gemini IA!`, 'log-success');
+    }
+  } catch (err) {
+    appendLog(`❌ Erro ao regenerar com Gemini: ${escapeHTML(err.message)}`, 'log-error');
+  } finally {
+    if (regenBtn) {
+      regenBtn.disabled = false;
+      regenBtn.innerHTML = '✨ Regenerar IA';
+    }
+    if (msgDiv) {
+      msgDiv.style.opacity = '1';
+    }
+  }
+}
+
+function toggleEditBatchItem(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+
+  const viewDiv = document.getElementById(`batch-msg-text-${batchId}-${itemIdx}`);
+  const editDiv = document.getElementById(`batch-msg-edit-${batchId}-${itemIdx}`);
+  const editArea = document.getElementById(`batch-msg-textarea-${batchId}-${itemIdx}`);
+
+  if (!viewDiv || !editDiv) return;
+
+  if (editDiv.style.display === 'none') {
+    editDiv.style.display = 'block';
+    viewDiv.style.display = 'none';
+    if (editArea) {
+      editArea.value = item.messageText;
+      editArea.focus();
+    }
+  } else {
+    editDiv.style.display = 'none';
+    viewDiv.style.display = 'block';
+  }
+}
+
+function saveEditBatchItem(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+
+  const editArea = document.getElementById(`batch-msg-textarea-${batchId}-${itemIdx}`);
+  if (!editArea) return;
+
+  const newText = editArea.value.trim();
+  if (!newText) {
+    appendLog('⚠️ O texto da mensagem não pode ficar vazio.', 'log-warning');
+    return;
+  }
+
+  item.messageText = newText;
+  item.hashSignature = simpleStringHash(newText);
+
+  const viewDiv = document.getElementById(`batch-msg-text-${batchId}-${itemIdx}`);
+  const editDiv = document.getElementById(`batch-msg-edit-${batchId}-${itemIdx}`);
+  const hashSpan = document.getElementById(`batch-hash-${batchId}-${itemIdx}`);
+
+  if (viewDiv) {
+    viewDiv.textContent = item.messageText;
+    viewDiv.style.display = 'block';
+  }
+  if (editDiv) {
+    editDiv.style.display = 'none';
+  }
+  if (hashSpan) {
+    hashSpan.textContent = item.hashSignature;
+  }
+
+  appendLog(`✅ Mensagem de <strong>${escapeHTML(item.clientData.nome)}</strong> atualizada com sucesso!`, 'log-success');
+}
+
+async function regenerateEntireBatchWithAI(batchId) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || batchList.length === 0) return;
+
+  const apiKey = localStorage.getItem('apoio_gemini_api_key');
+  if (!apiKey) {
+    appendLog('⚠️ Configure uma chave de API do Gemini para processar com inteligência artificial.', 'log-warning');
+    openGeminiConfigPanel();
+    return;
+  }
+
+  const rawItems = batchList.map(b => ({
+    nome: b.clientData.nome,
+    medicamento: b.clientData.medicamento,
+    telefone: b.clientData.telefone,
+    sintoma: b.clientData.sintoma || '',
+    tempo: b.clientData.tempo || '',
+    dica: b.clientData.dica || ''
+  }));
+
+  const savedOptions = (window.batchOptionsStore && window.batchOptionsStore[batchId]) || {};
+  const options = {
+    ...savedOptions,
+    useAI: true,
+    forceLocal: false
+  };
+
+  appendLog(`🤖 <strong>Gemini IA:</strong> Regenerando lote completo de <strong>${rawItems.length}</strong> mensagens...`, 'log-info');
+
+  const generatedBatch = await generateBatchMessagesSmart(rawItems, options);
+  appendLog(`✨ Lote completo de <strong>${generatedBatch.length}</strong> mensagens reprocessado com IA Gemini!`, 'log-success');
+  renderBatchOutput(generatedBatch, options);
+}
+
+function renderBatchOutput(batchList, options = {}) {
   const batchId = Date.now();
   window.batchMessagesStore[batchId] = batchList;
   window[`batch_data_${batchId}`] = batchList;
+  window.batchOptionsStore = window.batchOptionsStore || {};
+  window.batchOptionsStore[batchId] = options;
+
+  const aiCount = batchList.filter(b => b.isAI).length;
+  const isFullAI = aiCount === batchList.length;
 
   let listHTML = `
     <div class="wizard-box" id="batch-container-${batchId}">
-      <div class="wizard-title" style="color: var(--text-bright);">
-        <span>📦 Lote Processado (${batchList.length} Mensagens Protegidas Anti-Spam)</span>
+      <div class="wizard-title" style="color: var(--text-bright); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span>📦 Lote Processado (${batchList.length} Mensagens WhatsApp Safe)</span>
+        <span style="font-size: 0.8rem; font-weight: normal; color: ${isFullAI ? '#00ffcc' : 'var(--warning-color)'};">
+          ${isFullAI ? '✨ 100% Gerado com Gemini IA' : `🤖 ${aiCount}/${batchList.length} gerados com Gemini IA`}
+        </span>
       </div>
       <div class="log-dim" style="margin-bottom: 12px; font-size: 0.8rem;">
-        🛡️ <strong>Status de Unicidade:</strong> 100% de variação de texto e hash. Nenhuma mensagem repetida.
+        🛡️ <strong>Proteção Anti-Spam Ativa:</strong> 100% de variação semântica, zero-width padding e assinaturas de hash exclusivas para envio seguro no WhatsApp.
       </div>
   `;
 
   batchList.forEach((item, idx) => {
+    const aiBadge = item.isAI 
+      ? `<span class="badge-tag" style="background: rgba(0, 255, 204, 0.15); color: #00ffcc; border-color: rgba(0, 255, 204, 0.4); font-size: 0.72rem; padding: 2px 6px; border-radius: 3px;">✨ Gemini IA</span>`
+      : `<span class="badge-tag" style="font-size: 0.72rem; color: var(--text-dim); padding: 2px 6px; border-radius: 3px;">🛡️ Anti-Spam Local</span>`;
+
     listHTML += `
-      <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+      <div id="batch-card-${batchId}-${idx}" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-bottom: 10px; transition: all 0.2s ease;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
-          <strong class="log-success">#${idx + 1} - ${escapeHTML(item.clientData.nome)}</strong>
-          <span class="meta-pill">${item.clientData.classification.icon} ${escapeHTML(item.clientData.classification.label)}: <strong>${escapeHTML(item.clientData.medicamento)}</strong></span>
-          <span class="badge-tag" style="font-size: 0.7rem; color: var(--prompt-color);">${item.hashSignature}</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong class="log-success">#${idx + 1} - ${escapeHTML(item.clientData.nome)}</strong>
+            <span id="batch-badge-${batchId}-${idx}">${aiBadge}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="meta-pill">${item.clientData.classification.icon} ${escapeHTML(item.clientData.classification.label)}: <strong>${escapeHTML(item.clientData.medicamento)}</strong></span>
+            <span id="batch-hash-${batchId}-${idx}" class="badge-tag" style="font-size: 0.7rem; color: var(--prompt-color);">${item.hashSignature}</span>
+          </div>
         </div>
-        <div style="white-space: pre-wrap; font-size: 0.88rem; background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-bright); margin-bottom: 8px;">${escapeHTML(item.messageText)}</div>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+
+        <!-- Visualização da Mensagem -->
+        <div id="batch-msg-text-${batchId}-${idx}" style="white-space: pre-wrap; font-size: 0.88rem; background: var(--bg-card); padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-bright); margin-bottom: 8px; line-height: 1.45;">${escapeHTML(item.messageText)}</div>
+
+        <!-- Editor Inline Oculto -->
+        <div id="batch-msg-edit-${batchId}-${idx}" style="display: none; margin-bottom: 8px;">
+          <textarea id="batch-msg-textarea-${batchId}-${idx}" rows="4" style="width: 100%; background: var(--bg-card); border: 1px solid var(--accent-color); color: var(--text-bright); font-family: var(--font-mono); font-size: 0.88rem; padding: 8px; border-radius: 4px; outline: none; resize: vertical;"></textarea>
+          <div style="display: flex; gap: 6px; margin-top: 6px;">
+            <button class="tool-btn primary" onclick="saveEditBatchItem(${batchId}, ${idx})" style="font-size: 0.76rem; padding: 4px 10px;">💾 Salvar Alterações</button>
+            <button class="tool-btn danger" onclick="toggleEditBatchItem(${batchId}, ${idx})" style="font-size: 0.76rem; padding: 4px 10px;">Cancelar</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
           <button class="card-btn btn-whatsapp" onclick="openBatchItemWhatsApp(${batchId}, ${idx})">💬 Enviar WhatsApp (${escapeHTML(item.clientData.telefone || 'Sem número')})</button>
           <button class="card-btn btn-copy" onclick="copyBatchItemText(${batchId}, ${idx})">📋 Copiar Texto</button>
+          <button class="card-btn" id="batch-regen-btn-${batchId}-${idx}" onclick="regenerateBatchItemWithAI(${batchId}, ${idx})" style="border-color: rgba(0, 255, 204, 0.4); color: #00ffcc;">✨ Regenerar IA</button>
+          <button class="card-btn" onclick="toggleEditBatchItem(${batchId}, ${idx})" style="font-size: 0.8rem;">✏️ Editar</button>
         </div>
       </div>
     `;
   });
 
   listHTML += `
-    <div style="margin-top: 12px; display: flex; gap: 10px;">
+    <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
       <button class="tool-btn primary" onclick="exportBatchCSV(${batchId})">📥 Exportar Lote para CSV</button>
+      <button class="tool-btn" onclick="regenerateEntireBatchWithAI(${batchId})" style="border-color: rgba(0, 255, 204, 0.5); color: #00ffcc;">✨ Regenerar Todo o Lote com IA</button>
+      <button class="tool-btn" onclick="startBatchWizard()">➕ Novo Lote</button>
     </div>
   </div>
   `;
@@ -3109,10 +3670,11 @@ function exportBatchCSV(batchId) {
   const batchList = window[`batch_data_${batchId}`];
   if (!batchList || batchList.length === 0) return;
 
-  let csvContent = "data:text/csv;charset=utf-8,Cliente;Item;Telefone;AssinaturaHash;Mensagem\n";
+  let csvContent = "data:text/csv;charset=utf-8,Cliente;Item;Telefone;AssinaturaHash;OrigemIA;Mensagem\n";
   batchList.forEach(item => {
     const cleanMsg = item.messageText.replace(/"/g, '""').replace(/\n/g, ' ');
-    csvContent += `"${item.clientData.nome}";"${item.clientData.medicamento}";"${item.clientData.telefone}";"${item.hashSignature}";"${cleanMsg}"\n`;
+    const isAiStr = item.isAI ? "Gemini IA" : "Anti-Spam Local";
+    csvContent += `"${item.clientData.nome}";"${item.clientData.medicamento}";"${item.clientData.telefone}";"${item.hashSignature}";"${isAiStr}";"${cleanMsg}"\n`;
   });
 
   const encodedUri = encodeURI(csvContent);

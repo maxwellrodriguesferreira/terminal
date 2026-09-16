@@ -25,6 +25,10 @@ const requirements = [
   ['parser defensivo do JSON da IA', app.includes('function sanitizeGeminiJsonResponse')],
   ['força JSON da API Gemini', app.includes("responseMimeType: 'application/json'")],
   ['schema estruturado do Gemini', app.includes('GEMINI_RESPONSE_SCHEMA')],
+  ['schema de lote do Gemini', app.includes('GEMINI_BATCH_RESPONSE_SCHEMA')],
+  ['parser de lote do Gemini', app.includes('function sanitizeGeminiBatchJsonResponse')],
+  ['gerador de lote com IA Gemini', app.includes('function generateBatchMessagesAI(')],
+  ['gerador inteligente de lote', app.includes('function generateBatchMessagesSmart(')],
   ['bloqueio temporário da IA', app.includes('isGeminiTemporarilyBlocked()')],
   ['painel de login no HTML', html.includes('id="loginPanel"')],
   ['formulário de login no HTML', html.includes('id="loginForm"')],
@@ -59,7 +63,25 @@ if (!parsed || !parsed.empatico || !parsed.pos_tratamento) {
   throw new Error('Falha nos testes do parser Gemini: resposta inválida não foi recuperada.');
 }
 
-console.log('✅ Painel Gemini e Parser: testes estruturais aprovados.');
+const batchFunctionMatch = app.match(/function sanitizeGeminiBatchJsonResponse\([\s\S]*?\n\}/);
+if (!batchFunctionMatch) {
+  throw new Error('Falha nos testes do parser Gemini Lote: função sanitizeGeminiBatchJsonResponse não encontrada.');
+}
+vm.runInNewContext(batchFunctionMatch[0], context);
+
+const malformedBatchResponse = `Aqui está o lote gerado pela IA:\n[\n  {"index": 0, "nome": "Maria Silva", "mensagem": "Olá Maria! Como está a dor de garganta com o Amoxicilina?"},\n  {"index": 1, "nome": "Carlos Souza", "mensagem": "Oi Carlos! Passando para acompanhar sua medição de pressão."}\n]\nEsperamos que atenda!`;
+const parsedBatch = context.sanitizeGeminiBatchJsonResponse(malformedBatchResponse, 2, 0);
+if (!parsedBatch || parsedBatch.length !== 2 || !parsedBatch[0].includes('Amoxicilina') || !parsedBatch[1].includes('pressão')) {
+  throw new Error('Falha nos testes do parser Gemini Lote: respostas do array não foram extraídas corretamente.');
+}
+
+const objectBatchResponse = `{\n  "mensagens": [\n    {"index": 0, "mensagem": "Mensagem 1 personalizada"},\n    {"index": 1, "mensagem": "Mensagem 2 personalizada"}\n  ]\n}`;
+const parsedObjBatch = context.sanitizeGeminiBatchJsonResponse(objectBatchResponse, 2, 0);
+if (!parsedObjBatch || parsedObjBatch.length !== 2 || !parsedObjBatch[0].includes('Mensagem 1') || !parsedObjBatch[1].includes('Mensagem 2')) {
+  throw new Error('Falha nos testes do parser Gemini Lote: resposta encapsulada em objeto não foi recuperada.');
+}
+
+console.log('✅ Painel Gemini, Parser Individual e Parser de Lote: testes estruturais aprovados.');
 
 // =========================================================================
 // 2. TESTES DO SISTEMA DE CONTROLE DE ACESSO, APROVAÇÃO E MODERAÇÃO
@@ -123,6 +145,12 @@ const userRequirements = [
   ['cabeçalho Referrer-Policy no firebase.json', firebaseJson.includes('strict-origin-when-cross-origin')],
   ['função de cópia segura de lote no JS', app.includes('function copyBatchItemText(')],
   ['função de abertura segura de WhatsApp em lote no JS', app.includes('function openBatchItemWhatsApp(')],
+  ['função de regeneração individual com IA no JS', app.includes('function regenerateBatchItemWithAI(')],
+  ['função de edição inline de item de lote no JS', app.includes('function toggleEditBatchItem(') && app.includes('function saveEditBatchItem(')],
+  ['função de regeneração de lote completo com IA no JS', app.includes('function regenerateEntireBatchWithAI(')],
+  ['função de ativação inline da chave Gemini no lote', app.includes('function saveInlineBatchGeminiKey(')],
+  ['seletor de tom da IA no painel de lote', app.includes('id="batchAiToneSelect"')],
+  ['campo de instruções extras para IA no lote', app.includes('id="batchCustomInstruction"')],
   ['função de reinicialização segura de assistente por card no JS', app.includes('function startWizardFromCard(')],
   ['proteção contra fallback indevido em getSuperAdminUser', !app.includes('|| users[0]')]
 ];
@@ -422,3 +450,89 @@ if (!checkPromoted || checkPromoted.role !== 'admin') {
 }
 
 console.log('✅ Todos os testes de controle de acesso, moderação (aprovar, rejeitar, bloquear, desbloquear, role, auditoria) e segurança foram aprovados com 100% de sucesso!');
+
+// =========================================================================
+// 4. TESTES DE GERAÇÃO EM LOTE COM IA GEMINI E PROTEÇÃO ANTI-SPAM
+// =========================================================================
+(async () => {
+  const batchAppCode = `
+    const DEFAULT_CONFIG = { drogaria: 'Drogasil Mogilar', farmaceutico: 'Maxwell' };
+    ${app.match(/const ANTI_SPAM_BLOCKS = [\s\S]*?;\n\nconst usedMessageHashes = new Set\(\);/)?.[0] || 'const usedMessageHashes = new Set();'}
+    ${app.match(/function capitalizeName\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/function getSaudacaoHorario\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/function classifyItem\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/function simpleStringHash\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/function generateUniqueAntiSpamMessage\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/const GEMINI_MODEL = 'gemini-3.6-flash';[\s\S]*?\n\}\n\nfunction sanitizeGeminiJsonResponse/)?.[0]?.replace(/\nfunction sanitizeGeminiJsonResponse$/, '') || ''}
+    ${app.match(/function sanitizeGeminiBatchJsonResponse\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/async function generateBatchMessagesAI\([\s\S]*?\n\}/)?.[0] || ''}
+    ${app.match(/async function generateBatchMessagesSmart\([\s\S]*?\n\}/)?.[0] || ''}
+  `;
+
+  const batchContext = {
+    console,
+    JSON,
+    Object,
+    Array,
+    String,
+    Number,
+    Boolean,
+    RegExp,
+    Math,
+    Date,
+    Set,
+    escapeHTML: (s) => String(s || ''),
+    appendLog: () => {},
+    localStorage: {
+      data: {},
+      getItem(k) { return this.data[k] || null; },
+      setItem(k, v) { this.data[k] = String(v); },
+      removeItem(k) { delete this.data[k]; }
+    },
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify([
+                { index: 0, nome: 'Maria Silva', mensagem: 'Olá Maria! Como está sua recuperação com Amoxicilina?' },
+                { index: 1, nome: 'Carlos Souza', mensagem: 'Olá Carlos! Aferiu sua pressão hoje? Conte comigo!' }
+              ])
+            }]
+          }
+        }]
+      })
+    })
+  };
+
+  vm.runInNewContext(batchAppCode, batchContext);
+
+  const sampleItems = [
+    { nome: 'Maria Silva', medicamento: 'Amoxicilina 500mg', telefone: '11988887777', sintoma: 'dor de garganta' },
+    { nome: 'Carlos Souza', medicamento: 'Aferição de Pressão', telefone: '11977776666' }
+  ];
+
+  // 1. Teste sem chave: Deve gerar usando gerador anti-spam local
+  const localBatch = await batchContext.generateBatchMessagesSmart(sampleItems, { useAI: false });
+  if (!localBatch || localBatch.length !== 2 || localBatch[0].isAI !== false || !localBatch[0].hashSignature.startsWith('SIG_')) {
+    throw new Error('Falha no teste: Geração de lote local sem IA falhou.');
+  }
+
+  // 2. Teste com chave: Deve gerar usando IA Gemini com flag isAI = true
+  batchContext.localStorage.setItem('apoio_gemini_api_key', 'test-api-key-123');
+  const aiBatch = await batchContext.generateBatchMessagesSmart(sampleItems, { useAI: true });
+  if (!aiBatch || aiBatch.length !== 2 || aiBatch[0].isAI !== true || !aiBatch[0].messageText.includes('Amoxicilina')) {
+    throw new Error('Falha no teste: Geração de lote com IA Gemini falhou.');
+  }
+
+  // 3. Teste de unicidade dos hashes
+  if (aiBatch[0].hashSignature === aiBatch[1].hashSignature) {
+    throw new Error('Falha no teste: Assinaturas de hash anti-spam não foram exclusivas no lote.');
+  }
+
+  console.log('✅ Geração em lote com IA Gemini e Fallback Anti-Spam aprovados com 100% de sucesso!');
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

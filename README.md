@@ -68,14 +68,20 @@ Ao efetuar login, o terminal se adapta automaticamente aos dados do profissional
 
 ---
 
-### 📦 Processamento em Lote com Proteção Anti-Spam
+### 📦 Processamento em Lote com Inteligência Artificial Gemini & Proteção Anti-Spam
 
-- Geração em massa a partir de linhas formatadas (`Nome | Item | Telefone | Sintoma`).
-- Algoritmo de diferenciação automática para envios em grande escala:
-  - Variações léxicas e estruturais de texto.
+- **Geração em Massa Inteligente**: Redação com IA Google Gemini a partir de linhas formatadas (`Nome | Item | Telefone | Sintoma`).
+- **Personalização de Tom e Contexto**: Escolha de estilo (Equilibrado, Empático, Atencioso/Clínico, Descontraído ou Pós-Tratamento) e inclusão de instruções personalizadas da farmácia no lote.
+- **Ativação Rápida de IA**: Configuração e ativação inline de chave de API diretamente no formulário do lote.
+- **Regeneração e Edição no Lote**:
+  - Botão `✨ Regenerar IA` para ajustar individualmente uma mensagem específica com a IA.
+  - Botão `✨ Regenerar Todo o Lote com IA` para reprocessar o conjunto de mensagens.
+  - Editor inline em cada card para ajustes manuais antes do envio.
+- **Algoritmo Anti-Bloqueio no WhatsApp**:
+  - Variações semânticas e estruturais únicas produzidas pela IA ou templates locais.
   - Inserção de caracteres invisíveis (*Zero-Width Spaces*).
   - Hash identificador exclusivo (`SIG_...`) para evitar restrições em disparos de mensagens.
-- Exportação dos lotes gerados para planilha CSV.
+- **Exportação para Planilha CSV**: Inclui dados do cliente, telefone, assinatura de hash, texto da mensagem e status de origem (Gemini IA / Anti-Spam Local).
 
 ---
 
