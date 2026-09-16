@@ -1012,6 +1012,14 @@ button, input, select, textarea, a {
   border-radius: 4px;
 }
 
+.login-header-actions,
+.login-theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.login-header-actions button,
 .login-theme-switcher button {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1027,6 +1035,7 @@ button, input, select, textarea, a {
   appearance: none;
 }
 
+.login-header-actions button:hover,
 .login-theme-switcher button:hover {
   border-color: var(--accent-color);
   color: var(--text-bright);
@@ -1222,6 +1231,30 @@ button, input, select, textarea, a {
 
 .login-creator-credits strong {
   color: var(--accent-color);
+}
+
+.login-about-link-btn {
+  background: transparent;
+  border: none;
+  color: var(--prompt-color);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-top: 5px;
+  padding: 2px 4px;
+  transition: color 0.2s;
+  display: inline-block;
+}
+
+.login-about-link-btn:hover {
+  color: var(--accent-color);
+}
+
+.login-about-card {
+  width: min(650px, 96vw);
+  border-color: var(--prompt-color);
+  box-shadow: 0 0 25px rgba(0, 255, 204, 0.2), 0 20px 60px rgba(0, 0, 0, 0.95);
 }
 
 /* ==========================================================================

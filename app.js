@@ -1453,10 +1453,26 @@ async function deleteUserAction(emailOrUid) {
   return true;
 }
 
+function openLoginAboutModal() {
+  const modal = document.getElementById('loginAboutModal');
+  if (modal) {
+    modal.hidden = false;
+  }
+}
+
+function closeLoginAboutModal() {
+  const modal = document.getElementById('loginAboutModal');
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
 // Expõe ações globais para cliques inline no HTML
 if (typeof window !== 'undefined') {
   window.approveUserAction = approveUserAction;
   window.rejectUserAction = rejectUserAction;
+  window.openLoginAboutModal = openLoginAboutModal;
+  window.closeLoginAboutModal = closeLoginAboutModal;
   window.openRejectUserModal = openRejectUserModal;
   window.closeAdminRejectModal = closeAdminRejectModal;
   window.handleConfirmReject = handleConfirmReject;
@@ -1480,6 +1496,11 @@ function initializeAuth() {
   const loginPassToggle = document.getElementById('loginPassToggle');
   const regPassToggle = document.getElementById('regPassToggle');
   const loginThemeBtn = document.getElementById('loginThemeBtn');
+  const loginAboutBtn = document.getElementById('loginAboutBtn');
+  const loginAboutFooterBtn = document.getElementById('loginAboutFooterBtn');
+  const loginAboutCloseBtn = document.getElementById('loginAboutCloseBtn');
+  const loginAboutOkBtn = document.getElementById('loginAboutOkBtn');
+  const loginAboutBackdrop = document.getElementById('loginAboutBackdrop');
   const logoutBtn = document.getElementById('logoutBtn');
   const adminUsersBtn = document.getElementById('adminUsersBtn');
   const adminUsersCloseBtn = document.getElementById('adminUsersCloseBtn');
@@ -1496,6 +1517,11 @@ function initializeAuth() {
   if (regPassToggle) regPassToggle.addEventListener('click', toggleRegisterPassVisibility);
 
   if (loginThemeBtn) loginThemeBtn.addEventListener('click', toggleTheme);
+  if (loginAboutBtn) loginAboutBtn.addEventListener('click', openLoginAboutModal);
+  if (loginAboutFooterBtn) loginAboutFooterBtn.addEventListener('click', openLoginAboutModal);
+  if (loginAboutCloseBtn) loginAboutCloseBtn.addEventListener('click', closeLoginAboutModal);
+  if (loginAboutOkBtn) loginAboutOkBtn.addEventListener('click', closeLoginAboutModal);
+  if (loginAboutBackdrop) loginAboutBackdrop.addEventListener('click', closeLoginAboutModal);
   if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
 
   if (adminUsersBtn) adminUsersBtn.addEventListener('click', openAdminUsersPanel);

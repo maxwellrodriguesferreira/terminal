@@ -83,8 +83,9 @@
           <span class="control maximize"></span>
         </div>
         <span class="login-badge" id="loginBadge">🔒 ACESSO RESTRITO</span>
-        <div class="login-theme-switcher">
-          <button id="loginThemeBtn" type="button" title="Trocar Tema Visual">🎨 Tema</button>
+        <div class="login-header-actions">
+          <button id="loginAboutBtn" type="button" class="login-header-btn" title="Sobre o Projeto & Criador">ℹ️ Sobre</button>
+          <button id="loginThemeBtn" type="button" class="login-header-btn" title="Trocar Tema Visual">🎨 Tema</button>
         </div>
       </div>
 
@@ -212,10 +213,108 @@
       </form>
 
       <footer class="login-creator-credits">
-        <span>👨‍⚕️💻 Criado pelo desenvolvedor e farmacêutico <strong>Maxwell Rodrigues Ferreira</strong> &bull; <strong>CRF-SP nº 86426</strong></span>
+        <div>👨‍⚕️💻 Criado pelo desenvolvedor e farmacêutico <strong>Maxwell Rodrigues Ferreira</strong> &bull; <strong>CRF-SP nº 86426</strong></div>
+        <button type="button" id="loginAboutFooterBtn" class="login-about-link-btn" title="Conhecer detalhes do projeto e criador">📖 Conhecer funcionalidades do sistema</button>
       </footer>
     </div>
   </section>
+
+  <!-- Modal Sobre o Projeto & Criador (Acessível na tela de login e terminal) -->
+  <div class="admin-modal" id="loginAboutModal" hidden>
+    <div class="admin-modal-backdrop" id="loginAboutBackdrop"></div>
+    <div class="admin-modal-card login-about-card" role="dialog" aria-modal="true" aria-labelledby="loginAboutModalTitle">
+      <div class="admin-modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.4rem;">💊🩺</span>
+          <div>
+            <h3 id="loginAboutModalTitle">Sobre o Terminal de Apoio Farmacêutico</h3>
+            <span class="badge-tag" style="margin-top: 2px; display: inline-block;">Versão 3.3.0 · PWA Clínico</span>
+          </div>
+        </div>
+        <button class="gemini-icon-button" id="loginAboutCloseBtn" type="button" aria-label="Fechar modal de informações">✕</button>
+      </div>
+
+      <div class="admin-modal-body" style="line-height: 1.6; font-size: 0.88rem; max-height: calc(85vh - 120px); overflow-y: auto; padding-right: 6px;">
+        <!-- Card do Criador & Farmacêutico Responsável -->
+        <div class="about-creator-box" style="background: var(--bg-card); border: 1px solid var(--prompt-color); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <div style="font-size: 0.95rem; font-weight: 700; color: var(--prompt-color); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <span>👨‍⚕️💻 Criador & Responsável Técnico</span>
+          </div>
+          <div style="display: grid; gap: 6px; font-size: 0.85rem;">
+            <div><strong>Nome:</strong> <span style="color: var(--text-bright);">Maxwell Rodrigues Ferreira</span></div>
+            <div><strong>Inscrição Profissional:</strong> Farmacêutico inscrito no <strong>CRF-SP sob o nº 86426</strong></div>
+            <div><strong>Especialidade:</strong> Desenvolvimento Web & Atenção Farmacêutica / Farmácia Clínica</div>
+            <div><strong>Contato Direto:</strong> <code style="color: var(--accent-color);">maxwellferreira@proton.me</code></div>
+          </div>
+        </div>
+
+        <!-- Descrição das Funcionalidades do Projeto -->
+        <h4 style="color: var(--accent-color); margin-bottom: 10px; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+          <span>⚡ Principais Funcionalidades do Sistema</span>
+        </h4>
+
+        <div style="display: grid; gap: 10px; margin-bottom: 16px;">
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">💬 Mensagens Humanizadas em 4 Tons Clínicos</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Geração de orientações nos tons <em>Empático</em>, <em>Atencioso (Clínico)</em>, <em>Descontraído</em> e <em>Pós-Tratamento</em>, adaptando a linguagem para promover a adesão farmacológica com acolhimento.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">🩺 Reconhecimento Automático de 8 Serviços Farmacêuticos</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Identificação inteligente de procedimentos: Injetáveis, Sensor Libre, Pressão Arterial, Bioimpedância, Furo de Orelha e Testes Rápidos (COVID-19, Influenza e Painel Respiratório).
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">📦 Processamento em Lote & Fila de Disparo no WhatsApp</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Importação flexível de planilhas de clientes (Pipe, Tab, Vírgula) com painel interativo de fila de envio, barra de progresso em tempo real, temporizador configurável (3s a 10s) e modos Web e Universal.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">🛡️ Proteção Anti-Spam & Algoritmo Anti-Bloqueio</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Variações estruturais automáticas, injeção de caracteres invisíveis (Zero-Width) e hashes de integridade exclusivos (<code>SIG_...</code>) para proteger o número da farmácia contra restrições.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">🧠 Inteligência Artificial Google Gemini 3.6 Flash</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Redação de mensagens personalizadas baseadas no contexto de saúde do paciente, com fallback local instantâneo caso a IA esteja inativa.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">👥 Controle de Acesso RBAC & Painel de Moderação</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Autenticação segura via Firebase, fluxo de aprovação obrigatória de novos farmacêuticos por administradores, múltiplos status de acesso e trilha de auditoria detalhada.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <strong style="color: var(--text-bright);">📺 Interface Retrô CRT & Temas Personalizados</strong>
+            <p class="log-dim" style="font-size: 0.82rem; margin-top: 3px;">
+              Visual inspirado em terminais clássicos com scanlines opcionais e 4 esquemas de cores: Matrix, Amber, Cyberpunk e Dark.
+            </p>
+          </div>
+        </div>
+
+        <!-- Aviso Legal -->
+        <div style="font-size: 0.76rem; color: var(--text-dim); border-top: 1px dashed var(--border-color); padding-top: 10px;">
+          ⚖️ <strong>Aviso Legal & Isenção de Responsabilidade:</strong> Esta é uma ferramenta pessoal e independente criada para fins de apoio profissional. Não constitui canal ou sistema oficial da empresa RaiaDrogasil. A avaliação e orientação técnica são de exclusiva responsabilidade do farmacêutico habilitado.
+        </div>
+      </div>
+
+      <div class="admin-modal-actions" style="margin-top: 16px; justify-content: flex-end;">
+        <button class="tool-btn primary" id="loginAboutOkBtn" type="button">Entendi / Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Painel Administrativo de Gestão de Usuários (/admin/users) -->
   <section class="admin-users-panel" id="adminUsersPanel" aria-labelledby="adminUsersTitle" hidden>

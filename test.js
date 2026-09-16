@@ -152,7 +152,11 @@ const userRequirements = [
   ['seletor de tom da IA no painel de lote', app.includes('id="batchAiToneSelect"')],
   ['campo de instruções extras para IA no lote', app.includes('id="batchCustomInstruction"')],
   ['função de reinicialização segura de assistente por card no JS', app.includes('function startWizardFromCard(')],
-  ['proteção contra fallback indevido em getSuperAdminUser', !app.includes('|| users[0]')]
+  ['proteção contra fallback indevido em getSuperAdminUser', !app.includes('|| users[0]')],
+  ['botão sobre na tela de login', html.includes('id="loginAboutBtn"')],
+  ['modal sobre o projeto no HTML', html.includes('id="loginAboutModal"')],
+  ['função de abertura do modal sobre no JS', app.includes('function openLoginAboutModal()')],
+  ['função de fechamento do modal sobre no JS', app.includes('function closeLoginAboutModal()')]
 ];
 
 const failedUserTests = userRequirements.filter(([, passed]) => !passed).map(([name]) => name);
