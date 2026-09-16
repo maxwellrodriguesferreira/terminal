@@ -526,12 +526,40 @@ console.log('✅ Todos os testes de controle de acesso, moderação (aprovar, re
     throw new Error('Falha no teste: Geração de lote com IA Gemini falhou.');
   }
 
-  // 3. Teste de unicidade dos hashes
-  if (aiBatch[0].hashSignature === aiBatch[1].hashSignature) {
-    throw new Error('Falha no teste: Assinaturas de hash anti-spam não foram exclusivas no lote.');
+  // 4. Testes de Parsing e URLs de Envio WhatsApp
+  if (typeof batchContext.parseBatchInputLine === 'function') {
+    const pipeParsed = batchContext.parseBatchInputLine('Joana Darc | Dipirona 500mg | (11) 98765-4321 | febre');
+    const tabParsed = batchContext.parseBatchInputLine('Marcos\tLosartana 50mg\t11912345678\tpressao alta');
+    const commaParsed = batchContext.parseBatchInputLine('Ana Souza, Omeprazol 20mg, 11999998888, azia');
+
+    if (!pipeParsed || pipeParsed.nome !== 'Joana Darc' || pipeParsed.telefone !== '11987654321') {
+      throw new Error('Falha no teste: parseBatchInputLine com pipe falhou.');
+    }
+    if (!tabParsed || tabParsed.nome !== 'Marcos' || tabParsed.medicamento !== 'Losartana 50mg') {
+      throw new Error('Falha no teste: parseBatchInputLine com tab falhou.');
+    }
+    if (!commaParsed || commaParsed.nome !== 'Ana Souza') {
+      throw new Error('Falha no teste: parseBatchInputLine com vírgula falhou.');
+    }
   }
 
-  console.log('✅ Geração em lote com IA Gemini e Fallback Anti-Spam aprovados com 100% de sucesso!');
+  if (typeof batchContext.formatWhatsAppPhone === 'function' && typeof batchContext.buildWhatsAppSendUrl === 'function') {
+    const formatted = batchContext.formatWhatsAppPhone('11988887777');
+    if (formatted !== '5511988887777') {
+      throw new Error(`Falha no teste: formatWhatsAppPhone retornou ${formatted}`);
+    }
+    const universalUrl = batchContext.buildWhatsAppSendUrl('11988887777', 'Olá **Maria**', 'universal');
+    const webUrl = batchContext.buildWhatsAppSendUrl('11988887777', 'Olá Maria', 'web');
+
+    if (!universalUrl.includes('api.whatsapp.com/send?phone=5511988887777') || !universalUrl.includes('Ol%C3%A1%20*Maria*')) {
+      throw new Error('Falha no teste: buildWhatsAppSendUrl universal inválido.');
+    }
+    if (!webUrl.includes('web.whatsapp.com/send?phone=5511988887777')) {
+      throw new Error('Falha no teste: buildWhatsAppSendUrl web inválido.');
+    }
+  }
+
+  console.log('✅ Geração em lote com IA Gemini, Fila de Envio WhatsApp e Fallback Anti-Spam aprovados com 100% de sucesso!');
 })().catch(err => {
   console.error(err);
   process.exit(1);

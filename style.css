@@ -450,6 +450,19 @@ button, input, select, textarea, a {
   font-weight: 500;
 }
 
+.welcome-creator {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  border-top: 1px dashed var(--border-color);
+  padding-top: 6px;
+  line-height: 1.4;
+}
+
+.welcome-creator strong {
+  color: var(--accent-color);
+}
+
 /* ==========================================================================
    Cards for Generated Messages
    ========================================================================== */
@@ -1197,6 +1210,20 @@ button, input, select, textarea, a {
   justify-content: center;
 }
 
+.login-creator-credits {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.45;
+}
+
+.login-creator-credits strong {
+  color: var(--accent-color);
+}
+
 /* ==========================================================================
    Abas de Login e Cadastro & Painel do Super Usuário
    ========================================================================== */
@@ -1942,4 +1969,172 @@ button, input, select, textarea, a {
   .login-header h1 {
     font-size: 1.05rem;
   }
+}
+
+/* ==========================================================================
+   Painel de Disparo e Fila de Envio em Lote do WhatsApp
+   ========================================================================== */
+.batch-send-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--accent-color);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.batch-send-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.batch-send-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.batch-progress-box {
+  background: var(--bg-primary);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.batch-progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-bright);
+  margin-bottom: 6px;
+}
+
+.batch-progress-bar-bg {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+  position: relative;
+}
+
+.batch-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00ffcc, #00bb88);
+  width: 0%;
+  transition: width 0.3s ease;
+  border-radius: 5px;
+}
+
+.batch-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-param-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.batch-param-group select {
+  background: var(--bg-primary);
+  color: var(--text-bright);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.batch-param-group select:focus {
+  border-color: var(--accent-color);
+}
+
+.batch-status-badge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.batch-status-badge.pending {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  border: 1px solid var(--border-color);
+}
+
+.batch-status-badge.sending {
+  background: rgba(255, 204, 0, 0.2);
+  color: #ffcc00;
+  border: 1px solid rgba(255, 204, 0, 0.5);
+  animation: pulse 1.2s infinite ease-in-out;
+}
+
+.batch-status-badge.sent {
+  background: rgba(0, 255, 128, 0.18);
+  color: #00ff80;
+  border: 1px solid rgba(0, 255, 128, 0.4);
+}
+
+.batch-status-badge.skipped {
+  background: rgba(255, 51, 102, 0.15);
+  color: #ff3366;
+  border: 1px solid rgba(255, 51, 102, 0.3);
+}
+
+.batch-card-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+  transition: all 0.25s ease;
+}
+
+.batch-card-item.is-sending {
+  border-color: #ffcc00;
+  box-shadow: 0 0 10px rgba(255, 204, 0, 0.25);
+  background: rgba(255, 204, 0, 0.03);
+}
+
+.batch-card-item.is-sent {
+  border-color: rgba(0, 255, 128, 0.35);
+  opacity: 0.88;
+}
+
+.batch-card-item.is-sent:hover {
+  opacity: 1;
+}
+
+.batch-inline-phone-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.batch-inline-phone-edit input {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-bright);
+  padding: 3px 6px;
+  font-size: 0.78rem;
+  border-radius: 3px;
+  width: 140px;
+  font-family: var(--font-mono);
 }

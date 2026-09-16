@@ -1,6 +1,7 @@
 /**
- * Terminal Apoio ao Tratamento - Drogasil Mogilar
- * Farmacêutico & Drogaria Dinâmicos
+ * Terminal Apoio ao Tratamento & Serviços Farmacêuticos
+ * Criado pelo desenvolvedor e farmacêutico Maxwell Rodrigues Ferreira (CRF-SP nº 86426)
+ * Drogasil Mogilar · Farmacêutico & Drogaria Dinâmicos
  */
 
 const DEFAULT_CONFIG = {
@@ -1769,12 +1770,15 @@ function renderWelcomeBanner() {
   const bannerHTML = `
     <div class="welcome-banner">
       <div class="welcome-title">
-        <span>💊 Apoio ao Tratamento v2.0</span>
+        <span>💊 Apoio ao Tratamento v3.3</span>
         <span class="badge-tag" id="welcomeDrogariaBadge">${drogaria}</span>
         <span class="badge-tag" id="welcomeFarmaceuticoBadge">Farmacêutico: ${farmaceutico}</span>
       </div>
       <p class="log-dim">Gerador de mensagens humanizadas e personalizadas de acompanhamento farmacêutico pós-venda / pós-tratamento.</p>
-      <p style="margin-top: 8px;">✨ <strong>Como começar:</strong> Clique nos botões acima ou digite <code class="log-info">novo</code> ou <code class="log-info">lote</code> no terminal abaixo.</p>
+      <div class="welcome-creator">
+        <span>👨‍⚕️💻 Criado pelo desenvolvedor e farmacêutico <strong>Maxwell Rodrigues Ferreira</strong> · Inscrito no <strong>CRF-SP nº 86426</strong></span>
+      </div>
+      <p style="margin-top: 8px;">✨ <strong>Como começar:</strong> Clique nos botões acima ou digite <code class="log-info">novo</code>, <code class="log-info">lote</code> ou <code class="log-info">sobre</code> no terminal abaixo.</p>
     </div>
   `;
   const div = document.createElement('div');
@@ -3356,6 +3360,59 @@ function startBatchWizard() {
   scrollToBottom();
 }
 
+function parseBatchInputLine(line) {
+  if (!line || typeof line !== 'string') return null;
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  let delimiter = '|';
+  if (trimmed.includes('\t')) {
+    delimiter = '\t';
+  } else if (trimmed.includes('|')) {
+    delimiter = '|';
+  } else if (trimmed.includes(';')) {
+    delimiter = ';';
+  } else if (trimmed.includes(',')) {
+    delimiter = ',';
+  }
+
+  const parts = trimmed.split(delimiter).map(p => p.trim());
+  if (!parts[0]) return null;
+
+  return {
+    nome: parts[0] || 'Cliente',
+    medicamento: parts[1] || 'Atendimento',
+    telefone: parts[2] ? parts[2].replace(/[^\d]/g, '') : '',
+    sintoma: parts[3] || ''
+  };
+}
+
+function formatWhatsAppPhone(phone) {
+  if (!phone) return '';
+  const digits = String(phone).replace(/[^\d]/g, '');
+  if (!digits) return '';
+  if (digits.length === 10 || digits.length === 11) {
+    return '55' + digits;
+  }
+  return digits;
+}
+
+function buildWhatsAppSendUrl(phone, text, targetMode = 'universal') {
+  const cleanPhone = formatWhatsAppPhone(phone);
+  const cleanText = (text || '').replace(/\*\*/g, '*');
+  const encodedText = encodeURIComponent(cleanText);
+
+  if (targetMode === 'web') {
+    return cleanPhone
+      ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`
+      : `https://web.whatsapp.com/send?text=${encodedText}`;
+  }
+
+  return cleanPhone
+    ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`
+    : `https://api.whatsapp.com/send?text=${encodedText}`;
+}
+
 async function handleBatchSubmit(e) {
   e.preventDefault();
   const text = document.getElementById('batchInputText')?.value.trim();
@@ -3365,19 +3422,14 @@ async function handleBatchSubmit(e) {
   const items = [];
 
   lines.forEach(line => {
-    const parts = line.split('|').map(p => p.trim());
-    if (parts[0]) {
-      items.push({
-        nome: parts[0],
-        medicamento: parts[1] || 'Atendimento',
-        telefone: parts[2] || '',
-        sintoma: parts[3] || ''
-      });
+    const parsed = parseBatchInputLine(line);
+    if (parsed && parsed.nome) {
+      items.push(parsed);
     }
   });
 
   if (items.length === 0) {
-    appendLog(`❌ Nenhuma linha válida encontrada.`, 'log-error');
+    appendLog(`❌ Nenhuma linha válida encontrada no lote.`, 'log-error');
     return;
   }
 
@@ -3407,27 +3459,281 @@ async function handleBatchSubmit(e) {
 
 window.batchMessagesStore = window.batchMessagesStore || {};
 window.batchOptionsStore = window.batchOptionsStore || {};
+window.batchQueues = window.batchQueues || {};
 
-function copyBatchItemText(batchId, itemIdx) {
-  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
-  if (!batchList || !batchList[itemIdx]) return;
-  const item = batchList[itemIdx];
-  const cleanMsg = (item.messageText || '').replace(/\*\*/g, '').replace(/\*/g, '');
-  copyTextToClipboard(cleanMsg, `✅ Mensagem de ${escapeHTML(item.clientData?.nome || 'cliente')} copiada!`);
+function getBatchQueue(batchId) {
+  if (!window.batchQueues[batchId]) {
+    const list = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`] || [];
+    window.batchQueues[batchId] = {
+      batchId,
+      currentIndex: 0,
+      isRunning: false,
+      isPaused: false,
+      timerId: null,
+      intervalSec: 5,
+      targetMode: 'universal',
+      statuses: new Array(list.length).fill('pending')
+    };
+  }
+  return window.batchQueues[batchId];
 }
 
-function openBatchItemWhatsApp(batchId, itemIdx) {
+function updateBatchProgressBar(batchId) {
+  const queue = getBatchQueue(batchId);
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`] || [];
+  const total = batchList.length;
+  if (total === 0) return;
+
+  const sentCount = queue.statuses.filter(s => s === 'sent').length;
+  const percent = Math.round((sentCount / total) * 100);
+
+  const fillElem = document.getElementById(`batch-progress-fill-${batchId}`);
+  const labelElem = document.getElementById(`batch-progress-label-${batchId}`);
+  const statsElem = document.getElementById(`batch-progress-stats-${batchId}`);
+
+  if (fillElem) fillElem.style.width = `${percent}%`;
+  if (labelElem) labelElem.textContent = `${percent}% concluído`;
+  if (statsElem) statsElem.textContent = `${sentCount} de ${total} enviadas`;
+}
+
+function setBatchItemVisualStatus(batchId, itemIdx, status) {
+  const queue = getBatchQueue(batchId);
+  queue.statuses[itemIdx] = status;
+
+  const badgeElem = document.getElementById(`batch-status-badge-${batchId}-${itemIdx}`);
+  const cardElem = document.getElementById(`batch-card-${batchId}-${itemIdx}`);
+
+  if (badgeElem) {
+    badgeElem.className = `batch-status-badge ${status}`;
+    if (status === 'sent') {
+      badgeElem.innerHTML = `✅ Enviado`;
+    } else if (status === 'sending') {
+      badgeElem.innerHTML = `🔄 Enviando...`;
+    } else if (status === 'skipped') {
+      badgeElem.innerHTML = `⏭️ Pulado`;
+    } else {
+      badgeElem.innerHTML = `⏳ Pendente`;
+    }
+  }
+
+  if (cardElem) {
+    cardElem.classList.remove('is-sending', 'is-sent');
+    if (status === 'sending') {
+      cardElem.classList.add('is-sending');
+      cardElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (status === 'sent') {
+      cardElem.classList.add('is-sent');
+    }
+  }
+
+  updateBatchProgressBar(batchId);
+}
+
+function recordBatchItemToHistory(item) {
+  try {
+    const historyItem = {
+      id: Date.now() + Math.random(),
+      timestamp: new Date().toLocaleString('pt-BR'),
+      clientData: {
+        nome: item.clientData.nome,
+        medicamento: item.clientData.medicamento,
+        drogaria: item.clientData.drogaria || DEFAULT_CONFIG.drogaria,
+        farmaceutico: item.clientData.farmaceutico || DEFAULT_CONFIG.farmaceutico,
+        telefone: item.clientData.telefone || '',
+        classification: item.clientData.classification || classifyItem(item.clientData.medicamento)
+      },
+      versions: {
+        empatico: item.messageText,
+        atencioso: item.messageText,
+        descontraido: item.messageText,
+        pos_tratamento: item.messageText
+      },
+      isAI: item.isAI || false,
+      source: 'Lote WhatsApp Gemini'
+    };
+
+    generatedMessagesHistory.unshift(historyItem);
+    localStorage.setItem('apoio_tratamento_history', JSON.stringify(generatedMessagesHistory.slice(0, 100)));
+    updateHistoryCounter();
+  } catch (e) {
+    console.warn('Erro ao salvar item do lote no histórico:', e);
+  }
+}
+
+function sendSingleBatchItemWhatsApp(batchId, itemIdx) {
   const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
   if (!batchList || !batchList[itemIdx]) return;
   const item = batchList[itemIdx];
-  const rawPhone = String(item.clientData?.telefone || '').replace(/[^\d]/g, '');
-  const cleanPhone = rawPhone ? (rawPhone.length === 11 || rawPhone.length === 10 ? '55' + rawPhone : rawPhone) : '';
-  const text = (item.messageText || '').replace(/\*\*/g, '*');
-  const encodedText = encodeURIComponent(text);
-  const waUrl = cleanPhone ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}` : `https://api.whatsapp.com/send?text=${encodedText}`;
+
+  const targetSelect = document.getElementById(`batch-target-mode-${batchId}`);
+  const targetMode = targetSelect ? targetSelect.value : 'universal';
+
+  const waUrl = buildWhatsAppSendUrl(item.clientData.telefone, item.messageText, targetMode);
   window.open(waUrl, '_blank', 'noopener,noreferrer');
-  appendLog('🚀 Abrindo WhatsApp para envio...', 'log-info');
+
+  setBatchItemVisualStatus(batchId, itemIdx, 'sent');
+  recordBatchItemToHistory(item);
+  appendLog(`💬 WhatsApp aberto para <strong>${escapeHTML(item.clientData.nome)}</strong>! Item marcado como enviado.`, 'log-info');
 }
+
+function startBatchWhatsAppQueue(batchId) {
+  const queue = getBatchQueue(batchId);
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`] || [];
+
+  if (batchList.length === 0) {
+    appendLog('⚠️ Nenhum item no lote para enviar.', 'log-warning');
+    return;
+  }
+
+  const intervalSelect = document.getElementById(`batch-interval-${batchId}`);
+  if (intervalSelect) {
+    queue.intervalSec = parseInt(intervalSelect.value, 10) || 5;
+  }
+
+  const targetSelect = document.getElementById(`batch-target-mode-${batchId}`);
+  if (targetSelect) {
+    queue.targetMode = targetSelect.value || 'universal';
+  }
+
+  queue.isRunning = true;
+  queue.isPaused = false;
+
+  updateQueueControlButtons(batchId);
+  appendLog(`🚀 <strong>Iniciando envio do lote no WhatsApp</strong> (Intervalo seguro: ${queue.intervalSec}s)...`, 'log-success');
+
+  processNextQueueItem(batchId);
+}
+
+function processNextQueueItem(batchId) {
+  const queue = getBatchQueue(batchId);
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`] || [];
+
+  if (!queue.isRunning || queue.isPaused) return;
+
+  // Encontra o próximo pendente a partir do índice atual
+  let nextIdx = queue.currentIndex;
+  while (nextIdx < batchList.length && queue.statuses[nextIdx] === 'sent') {
+    nextIdx++;
+  }
+
+  if (nextIdx >= batchList.length) {
+    queue.isRunning = false;
+    queue.isPaused = false;
+    if (queue.timerId) clearTimeout(queue.timerId);
+    queue.timerId = null;
+    updateQueueControlButtons(batchId);
+    appendLog(`🎉 <strong>Disparo do lote finalizado com sucesso!</strong> Todas as mensagens foram processadas.`, 'log-success');
+    return;
+  }
+
+  queue.currentIndex = nextIdx;
+  const item = batchList[nextIdx];
+
+  setBatchItemVisualStatus(batchId, nextIdx, 'sending');
+
+  const waUrl = buildWhatsAppSendUrl(item.clientData.telefone, item.messageText, queue.targetMode);
+  window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+  setBatchItemVisualStatus(batchId, nextIdx, 'sent');
+  recordBatchItemToHistory(item);
+
+  appendLog(`📨 Enviada mensagem #${nextIdx + 1} (${escapeHTML(item.clientData.nome)}). Aguardando ${queue.intervalSec}s para a próxima...`, 'log-info');
+
+  queue.currentIndex = nextIdx + 1;
+
+  if (queue.currentIndex < batchList.length) {
+    queue.timerId = setTimeout(() => {
+      processNextQueueItem(batchId);
+    }, queue.intervalSec * 1000);
+  } else {
+    queue.isRunning = false;
+    updateQueueControlButtons(batchId);
+    appendLog(`🎉 <strong>Lote completo enviado com sucesso!</strong>`, 'log-success');
+  }
+}
+
+function pauseBatchWhatsAppQueue(batchId) {
+  const queue = getBatchQueue(batchId);
+  if (queue.timerId) clearTimeout(queue.timerId);
+  queue.timerId = null;
+  queue.isPaused = true;
+  updateQueueControlButtons(batchId);
+  appendLog(`⏸️ Envio do lote em pausa. Clique em "Continuar Envio" para retomar.`, 'log-warning');
+}
+
+function resumeBatchWhatsAppQueue(batchId) {
+  const queue = getBatchQueue(batchId);
+  queue.isPaused = false;
+  queue.isRunning = true;
+  updateQueueControlButtons(batchId);
+  appendLog(`▶️ Retomando envio do lote no WhatsApp...`, 'log-info');
+  processNextQueueItem(batchId);
+}
+
+function cancelBatchWhatsAppQueue(batchId) {
+  const queue = getBatchQueue(batchId);
+  if (queue.timerId) clearTimeout(queue.timerId);
+  queue.timerId = null;
+  queue.isRunning = false;
+  queue.isPaused = false;
+  updateQueueControlButtons(batchId);
+  appendLog(`⏹️ Envio do lote cancelado pelo usuário.`, 'log-warning');
+}
+
+function skipCurrentBatchItem(batchId) {
+  const queue = getBatchQueue(batchId);
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`] || [];
+
+  if (queue.currentIndex < batchList.length) {
+    setBatchItemVisualStatus(batchId, queue.currentIndex, 'skipped');
+    appendLog(`⏭️ Mensagem #${queue.currentIndex + 1} pulada.`, 'log-dim');
+    queue.currentIndex++;
+    if (queue.isRunning && !queue.isPaused) {
+      if (queue.timerId) clearTimeout(queue.timerId);
+      processNextQueueItem(batchId);
+    }
+  }
+}
+
+function updateQueueControlButtons(batchId) {
+  const queue = getBatchQueue(batchId);
+  const startBtn = document.getElementById(`batch-btn-start-${batchId}`);
+  const pauseBtn = document.getElementById(`batch-btn-pause-${batchId}`);
+  const resumeBtn = document.getElementById(`batch-btn-resume-${batchId}`);
+  const stopBtn = document.getElementById(`batch-btn-stop-${batchId}`);
+  const skipBtn = document.getElementById(`batch-btn-skip-${batchId}`);
+
+  if (startBtn) startBtn.style.display = (!queue.isRunning && !queue.isPaused) ? 'inline-flex' : 'none';
+  if (pauseBtn) pauseBtn.style.display = (queue.isRunning && !queue.isPaused) ? 'inline-flex' : 'none';
+  if (resumeBtn) resumeBtn.style.display = (queue.isPaused) ? 'inline-flex' : 'none';
+  if (stopBtn) stopBtn.style.display = (queue.isRunning || queue.isPaused) ? 'inline-flex' : 'none';
+  if (skipBtn) skipBtn.style.display = (queue.isRunning || queue.isPaused) ? 'inline-flex' : 'none';
+}
+
+function updateBatchItemPhone(batchId, itemIdx, inputElem) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const newPhone = inputElem.value.trim().replace(/[^\d]/g, '');
+  batchList[itemIdx].clientData.telefone = newPhone;
+}
+
+function copyAllBatchMessages(batchId) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || batchList.length === 0) return;
+
+  let allText = `📦 LOTE DE MENSAGENS FARMACÊUTICAS (${batchList.length} Clientes)\n`;
+  allText += `Gerado em: ${new Date().toLocaleString('pt-BR')}\n`;
+  allText += `====================================================\n\n`;
+
+  batchList.forEach((item, idx) => {
+    const cleanMsg = (item.messageText || '').replace(/\*\*/g, '').replace(/\*/g, '');
+    allText += `--- [#${idx + 1}] ${item.clientData.nome} (${item.clientData.medicamento}) | Tel: ${item.clientData.telefone || 'N/A'} ---\n`;
+    allText += `${cleanMsg}\n\n`;
+  });
+
+  copyTextToClipboard(allText, `✅ Todas as ${batchList.length} mensagens do lote foram copiadas com sucesso!`);
+}
+
 
 async function regenerateBatchItemWithAI(batchId, itemIdx) {
   const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
@@ -3595,8 +3901,10 @@ function renderBatchOutput(batchList, options = {}) {
   window.batchOptionsStore = window.batchOptionsStore || {};
   window.batchOptionsStore[batchId] = options;
 
+  const queue = getBatchQueue(batchId);
   const aiCount = batchList.filter(b => b.isAI).length;
   const isFullAI = aiCount === batchList.length;
+  const withPhoneCount = batchList.filter(b => Boolean(b.clientData && b.clientData.telefone)).length;
 
   let listHTML = `
     <div class="wizard-box" id="batch-container-${batchId}">
@@ -3606,8 +3914,47 @@ function renderBatchOutput(batchList, options = {}) {
           ${isFullAI ? '✨ 100% Gerado com Gemini IA' : `🤖 ${aiCount}/${batchList.length} gerados com Gemini IA`}
         </span>
       </div>
-      <div class="log-dim" style="margin-bottom: 12px; font-size: 0.8rem;">
-        🛡️ <strong>Proteção Anti-Spam Ativa:</strong> 100% de variação semântica, zero-width padding e assinaturas de hash exclusivas para envio seguro no WhatsApp.
+
+      <!-- PAINEL DE CONTROLE DE ENVIO DO LOTE -->
+      <div class="batch-send-panel">
+        <div class="batch-send-header">
+          <div class="batch-send-title">
+            <span>📋 Acompanhamento de Envios (WhatsApp 1 a 1)</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-dim);">
+            📱 <strong>${withPhoneCount}</strong> de ${batchList.length} com telefone
+          </div>
+        </div>
+
+        <div class="batch-progress-box">
+          <div class="batch-progress-info">
+            <span id="batch-progress-label-${batchId}">0% enviado</span>
+            <span id="batch-progress-stats-${batchId}">0 de ${batchList.length} enviadas</span>
+          </div>
+          <div class="batch-progress-bar-bg">
+            <div id="batch-progress-fill-${batchId}" class="batch-progress-bar-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="batch-controls-row" style="margin-bottom: 10px; justify-content: space-between; align-items: center;">
+          <div class="batch-param-group">
+            <label for="batch-target-mode-${batchId}">🎯 Destino do WhatsApp:</label>
+            <select id="batch-target-mode-${batchId}">
+              <option value="universal" selected>WhatsApp App / Universal (api)</option>
+              <option value="web">WhatsApp Web (web.whatsapp.com)</option>
+            </select>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="tool-btn" onclick="copyAllBatchMessages(${batchId})">
+              📋 Copiar Todas as Mensagens
+            </button>
+          </div>
+        </div>
+
+        <div class="log-dim" style="font-size: 0.78rem; margin-top: 4px; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+          💡 <strong>Envio Individual:</strong> Clique em <strong>💬 Enviar WhatsApp</strong> em cada cliente abaixo para abrir a conversa com a mensagem personalizada gerada pela IA.
+        </div>
       </div>
   `;
 
@@ -3616,16 +3963,27 @@ function renderBatchOutput(batchList, options = {}) {
       ? `<span class="badge-tag" style="background: rgba(0, 255, 204, 0.15); color: #00ffcc; border-color: rgba(0, 255, 204, 0.4); font-size: 0.72rem; padding: 2px 6px; border-radius: 3px;">✨ Gemini IA</span>`
       : `<span class="badge-tag" style="font-size: 0.72rem; color: var(--text-dim); padding: 2px 6px; border-radius: 3px;">🛡️ Anti-Spam Local</span>`;
 
+    const rawPhone = item.clientData.telefone || '';
+
     listHTML += `
-      <div id="batch-card-${batchId}-${idx}" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-bottom: 10px; transition: all 0.2s ease;">
+      <div id="batch-card-${batchId}-${idx}" class="batch-card-item">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <strong class="log-success">#${idx + 1} - ${escapeHTML(item.clientData.nome)}</strong>
             <span id="batch-badge-${batchId}-${idx}">${aiBadge}</span>
+            <span id="batch-status-badge-${batchId}-${idx}" class="batch-status-badge pending">⏳ Pendente</span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span class="meta-pill">${item.clientData.classification.icon} ${escapeHTML(item.clientData.classification.label)}: <strong>${escapeHTML(item.clientData.medicamento)}</strong></span>
             <span id="batch-hash-${batchId}-${idx}" class="badge-tag" style="font-size: 0.7rem; color: var(--prompt-color);">${item.hashSignature}</span>
+          </div>
+        </div>
+
+        <!-- Telefone editável inline -->
+        <div style="margin-bottom: 8px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="color: var(--text-dim);">📱 Telefone:</span>
+          <div class="batch-inline-phone-edit">
+            <input type="tel" value="${escapeHTML(rawPhone)}" placeholder="DDD + Número" onchange="updateBatchItemPhone(${batchId}, ${idx}, this)" title="Edite o telefone se necessário">
           </div>
         </div>
 
@@ -3642,7 +4000,7 @@ function renderBatchOutput(batchList, options = {}) {
         </div>
 
         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-          <button class="card-btn btn-whatsapp" onclick="openBatchItemWhatsApp(${batchId}, ${idx})">💬 Enviar WhatsApp (${escapeHTML(item.clientData.telefone || 'Sem número')})</button>
+          <button class="card-btn btn-whatsapp" onclick="sendSingleBatchItemWhatsApp(${batchId}, ${idx})">💬 Enviar WhatsApp</button>
           <button class="card-btn btn-copy" onclick="copyBatchItemText(${batchId}, ${idx})">📋 Copiar Texto</button>
           <button class="card-btn" id="batch-regen-btn-${batchId}-${idx}" onclick="regenerateBatchItemWithAI(${batchId}, ${idx})" style="border-color: rgba(0, 255, 204, 0.4); color: #00ffcc;">✨ Regenerar IA</button>
           <button class="card-btn" onclick="toggleEditBatchItem(${batchId}, ${idx})" style="font-size: 0.8rem;">✏️ Editar</button>
@@ -3672,7 +4030,7 @@ function exportBatchCSV(batchId) {
 
   let csvContent = "data:text/csv;charset=utf-8,Cliente;Item;Telefone;AssinaturaHash;OrigemIA;Mensagem\n";
   batchList.forEach(item => {
-    const cleanMsg = item.messageText.replace(/"/g, '""').replace(/\n/g, ' ');
+    const cleanMsg = (item.messageText || '').replace(/"/g, '""').replace(/\n/g, ' ');
     const isAiStr = item.isAI ? "Gemini IA" : "Anti-Spam Local";
     csvContent += `"${item.clientData.nome}";"${item.clientData.medicamento}";"${item.clientData.telefone}";"${item.hashSignature}";"${isAiStr}";"${cleanMsg}"\n`;
   });
@@ -3692,6 +4050,42 @@ function exportBatchCSV(batchId) {
 /* ==========================================================================
    PARSER DE COMANDOS CLI E EVENTOS DE TECLADO
    ========================================================================== */
+
+function parseCommandArgs(cmdStr) {
+  const tokens = [];
+  const flags = {};
+  let currentToken = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < cmdStr.length; i++) {
+    const char = cmdStr[i];
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (char === ' ' && !inQuotes) {
+      if (currentToken) {
+        tokens.push(currentToken);
+        currentToken = '';
+      }
+    } else {
+      currentToken += char;
+    }
+  }
+  if (currentToken) tokens.push(currentToken);
+
+  const cleanTokens = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].startsWith('--')) {
+      const flagName = tokens[i].substring(2).toLowerCase();
+      const flagVal = (tokens[i + 1] && !tokens[i + 1].startsWith('--')) ? tokens[i + 1] : true;
+      flags[flagName] = flagVal;
+      if (flagVal !== true) i++;
+    } else {
+      cleanTokens.push(tokens[i]);
+    }
+  }
+  cleanTokens.flags = flags;
+  return cleanTokens;
+}
 
 function handleInputKeydown(e) {
   if (e.key === 'Enter') {
@@ -3748,151 +4142,171 @@ async function executeCommand(inputCmd) {
         });
         renderGeneratedOutput(result);
       } else if (parts.length >= 3) {
-        const nome = parts[1];
-        const medicamento = parts.slice(2).join(' ');
-        const result = await generateMessagesSmart({ nome, medicamento });
+        const result = await generateMessagesSmart({
+          nome: parts[1],
+          medicamento: parts[2],
+          drogaria: parts.flags?.drogaria || DEFAULT_CONFIG.drogaria,
+          farmaceutico: parts.flags?.farmaceutico || DEFAULT_CONFIG.farmaceutico,
+          telefone: parts.flags?.telefone || parts[3] || '',
+          sintoma: parts.flags?.sintoma || '',
+          tempo: parts.flags?.tempo || '',
+          dica: parts.flags?.dica || ''
+        });
         renderGeneratedOutput(result);
       } else {
         startWizard();
       }
       break;
 
-    case 'apikey':
-    case 'gemini':
-    case 'ia':
-      if (parts[1] === 'remover' || parts[1] === 'limpar' || parts[1] === 'delete') {
-        localStorage.removeItem('apoio_gemini_api_key');
-        appendLog(`🔑 Chave de API do Gemini foi removida.`, 'log-warning');
-        updateAIStatus();
-      } else if (parts[1] === 'status') {
-        const key = localStorage.getItem('apoio_gemini_api_key');
-        if (key) {
-          const masked = key.slice(0, 6) + '...' + key.slice(-4);
-          appendLog(`🟢 <strong>Gemini IA Ativo!</strong> (Chave: ${masked})`, 'log-success');
-        } else {
-          appendLog(`🔴 <strong>Gemini IA Inativo.</strong>`, 'log-warning');
-          openGeminiConfigPanel();
-        }
-      } else if (!parts[1]) {
-        openGeminiConfigPanel();
-      } else {
-        localStorage.setItem('apoio_gemini_api_key', parts[1].trim());
-        appendLog(`🔑 <strong>API do Gemini configurada com sucesso!</strong>`, 'log-success');
-        updateAIStatus();
-      }
-      break;
-
-    case 'exemplos':
-    case 'exemplo':
-      runExamples();
-      break;
-
     case 'lote':
-    case 'batch':
     case 'massa':
+    case 'batch':
       startBatchWizard();
       break;
 
+    case 'servicos':
+    case 'servico':
+    case 'serviços':
+    case 'serviço':
+      showServicesHelp();
+      break;
+
     case 'historico':
-      if (parts[1] === 'limpar' || parts[1] === 'clear' || parts[1] === 'zerar') {
+    case 'history':
+    case 'histórico':
+      if (parts[1] === 'limpar' || parts[1] === 'clear') {
         generatedMessagesHistory = [];
         localStorage.removeItem('apoio_tratamento_history');
         updateHistoryCounter();
-        appendLog(`🗑️ <strong>Histórico de mensagens foi limpo com sucesso!</strong> Contador zerado.`, 'log-warning');
+        appendLog(`🧹 Histórico de mensagens limpo com sucesso.`, 'log-success');
       } else {
         showHistory();
       }
       break;
 
-    case 'zerar':
-    case 'reset':
-      generatedMessagesHistory = [];
-      localStorage.removeItem('apoio_tratamento_history');
-      updateHistoryCounter();
-      appendLog(`🗑️ <strong>Histórico de mensagens foi zerado com sucesso!</strong> Contador reiniciado para 0.`, 'log-warning');
-      break;
-
     case 'limpar':
     case 'clear':
     case 'cls':
-      if (parts[1] === 'historico' || parts[1] === 'histórico' || parts[1] === 'tudo' || parts[1] === 'mensagens' || parts[1] === 'zerar') {
+      if (parts[1] === 'historico' || parts[1] === 'history') {
         generatedMessagesHistory = [];
         localStorage.removeItem('apoio_tratamento_history');
         updateHistoryCounter();
-        appendLog(`🗑️ <strong>Histórico de mensagens foi zerado com sucesso!</strong> Contador reiniciado para 0.`, 'log-warning');
+        appendLog(`🧹 Histórico limpo!`, 'log-success');
       } else {
         terminalOutput.innerHTML = '';
         renderWelcomeBanner();
       }
       break;
 
+    case 'zerar':
+      generatedMessagesHistory = [];
+      localStorage.removeItem('apoio_tratamento_history');
+      updateHistoryCounter();
+      appendLog(`🧹 Histórico de mensagens zerado! Contador reiniciado para 0.`, 'log-success');
+      break;
+
+    case 'sobre':
+    case 'info':
+    case 'autor':
+    case 'creditos':
+    case 'créditos':
+      showAbout();
+      break;
+
     case 'ajuda':
     case 'help':
     case '?':
-    case 'menu':
-    case 'comandos':
-    case 'socorro':
       showHelp();
-      break;
-
-    case 'servicos':
-    case 'serviço':
-    case 'servicos':
-      showServicesHelp();
       break;
 
     case 'tema':
     case 'theme':
-      if (parts[1] && THEMES.includes(parts[1].toLowerCase())) {
-        document.body.className = `theme-${parts[1].toLowerCase()}`;
-        appendLog(`🎨 Tema alterado para: <strong>${parts[1].toUpperCase()}</strong>`, 'log-info');
+      if (parts[1]) {
+        setTheme(parts[1].toLowerCase());
       } else {
         toggleTheme();
       }
       break;
 
-    case 'sair':
-    case 'logout':
-    case 'desconectar':
-    case 'exit':
-      logoutUser();
+    case 'crt':
+    case 'scanlines':
+      toggleCRT();
+      break;
+
+    case 'exemplos':
+    case 'exemplo':
+    case 'teste':
+      runExamples();
+      break;
+
+    case 'apikey':
+    case 'key':
+    case 'chave':
+      if (parts[1]) {
+        localStorage.setItem('apoio_gemini_api_key', parts[1].trim());
+        resetGeminiFailureState();
+        updateAIStatus();
+        appendLog(`✨ Chave da API do Google Gemini configurada com sucesso!`, 'log-success');
+      } else {
+        openGeminiConfigPanel();
+      }
+      break;
+
+    case 'gemini':
+    case 'config':
+    case 'ia':
+      openGeminiConfigPanel();
       break;
 
     case 'usuario':
     case 'whoami':
-    case 'quemami':
-    case 'perfil':
-      showCurrentUser();
-      break;
-
-    case 'senha':
-    case 'passwd':
-      handlePasswordChange(parts[1]);
-      break;
-
-    case 'usuarios':
-    case 'users':
-    case 'farmaceuticos':
-    case 'admin':
-    case '/admin/users':
-    case 'aprovacoes':
-      const sessionAdm = getAuthSession();
-      if (!sessionAdm || !isSuperUser(sessionAdm.user)) {
-        appendLog(`⚠️ O gerenciamento de cadastros é restrito a <strong>Administradores</strong>.`, 'log-error');
+      const currentSession = getAuthSession();
+      if (currentSession && currentSession.user) {
+        appendLog(`👤 Usuário logado: <strong>${escapeHTML(currentSession.user.name)}</strong> (${escapeHTML(currentSession.user.email)}) | Cargo: <strong>${escapeHTML(currentSession.user.role || 'farmaceutico')}</strong>`, 'log-info');
       } else {
-        openAdminUsersPanel();
-        appendLog(`🛡️ <strong>Painel Administrativo (/admin/users) aberto.</strong> Gerencie permissões e aprove cadastros.`, 'log-info');
+        appendLog(`👤 Usuário local: <strong>${escapeHTML(DEFAULT_CONFIG.farmaceutico)}</strong> (${escapeHTML(DEFAULT_CONFIG.drogaria)})`, 'log-info');
       }
       break;
 
+    case 'senha':
+    case 'password':
+      if (parts[1]) {
+        updateUserPassword(parts[1]);
+      } else {
+        appendLog(`ℹ️ Digite <code class="log-info">senha &lt;nova_senha&gt;</code> para alterar sua senha.`, 'log-warning');
+      }
+      break;
+
+    case 'sair':
+    case 'logout':
+      logoutUser();
+      break;
+
+    case 'usuarios':
+    case 'admin':
+    case 'users':
+      showAdminUsersPanel();
+      break;
+
     case 'aprovar':
-      const admSessApprove = getAuthSession();
-      if (!admSessApprove || !isSuperUser(admSessApprove.user)) {
-        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem aprovar cadastros.`, 'log-error');
+      const admSess = getAuthSession();
+      if (!admSess || !isSuperUser(admSess.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem aprovar usuários.`, 'log-error');
       } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">aprovar &lt;email_ou_nome&gt;</code> ou acesse <code class="log-info">usuarios</code>.`, 'log-warning');
+        appendLog(`ℹ️ Uso: <code class="log-info">aprovar &lt;email_ou_nome&gt;</code> ou acesse o painel pelo comando <code class="log-info">usuarios</code>.`, 'log-warning');
       } else {
         approveUserAction(parts[1]);
+      }
+      break;
+
+    case 'bloquear':
+      const admSessBlock = getAuthSession();
+      if (!admSessBlock || !isSuperUser(admSessBlock.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem bloquear usuários.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">bloquear &lt;email_ou_nome&gt;</code> ou acesse o painel pelo comando <code class="log-info">usuarios</code>.`, 'log-warning');
+      } else {
+        blockUserAction(parts[1]);
       }
       break;
 
@@ -3904,20 +4318,8 @@ async function executeCommand(inputCmd) {
       } else if (!parts[1]) {
         appendLog(`ℹ️ Uso: <code class="log-info">rejeitar &lt;email_ou_nome&gt; [motivo...]</code>`, 'log-warning');
       } else {
-        const reason = parts.slice(2).join(' ') || 'Recusado via comando do terminal.';
+        const reason = parts.slice(2).join(' ') || 'Recusado via terminal.';
         rejectUserAction(parts[1], reason);
-      }
-      break;
-
-    case 'bloquear':
-    case 'suspender':
-      const admSessBlock = getAuthSession();
-      if (!admSessBlock || !isSuperUser(admSessBlock.user)) {
-        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem bloquear contas.`, 'log-error');
-      } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">bloquear &lt;email_ou_nome&gt;</code>`, 'log-warning');
-      } else {
-        blockUserAction(parts[1]);
       }
       break;
 
@@ -3925,38 +4327,11 @@ async function executeCommand(inputCmd) {
     case 'reativar':
       const admSessUnblock = getAuthSession();
       if (!admSessUnblock || !isSuperUser(admSessUnblock.user)) {
-        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem desbloquear contas.`, 'log-error');
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem desbloquear usuários.`, 'log-error');
       } else if (!parts[1]) {
         appendLog(`ℹ️ Uso: <code class="log-info">desbloquear &lt;email_ou_nome&gt;</code>`, 'log-warning');
       } else {
         unblockUserAction(parts[1]);
-      }
-      break;
-
-    case 'role':
-    case 'funcao':
-    case 'cargo':
-      const admSessRole = getAuthSession();
-      if (!admSessRole || !isSuperUser(admSessRole.user)) {
-        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem alterar funções.`, 'log-error');
-      } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">role &lt;email&gt; &lt;user|admin&gt;</code>`, 'log-warning');
-      } else if (parts[2]) {
-        const newRole = normalizeRole(parts[2]);
-        const target = findUserRecord(parts[1]);
-        if (target) {
-          target.role = newRole;
-          saveRegisteredUsers(getRegisteredUsers());
-          if (typeof firestoreChangeUserRole === 'function') {
-            firestoreChangeUserRole(target.uid || target.email, newRole);
-          }
-          renderAdminUsersTable();
-          appendLog(`⭐ <strong>Função alterada:</strong> ${escapeHTML(target.name)} agora é <strong>${newRole.toUpperCase()}</strong>.`, 'log-info');
-        } else {
-          appendLog(`⚠️ Usuário "${escapeHTML(parts[1])}" não encontrado.`, 'log-warning');
-        }
-      } else {
-        toggleRoleUserAction(parts[1]);
       }
       break;
 
@@ -3965,11 +4340,38 @@ async function executeCommand(inputCmd) {
     case 'remover':
       const admSessDel = getAuthSession();
       if (!admSessDel || !isSuperUser(admSessDel.user)) {
-        appendLog(`⚠️ Apenas <strong>Administradores</strong> têm permissão para deletar usuários.`, 'log-error');
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem excluir usuários.`, 'log-error');
       } else if (!parts[1]) {
-        appendLog(`ℹ️ Uso: <code class="log-info">deletar &lt;email_ou_nome&gt;</code> ou acesse o painel pelo comando <code class="log-info">usuarios</code>.`, 'log-warning');
+        appendLog(`ℹ️ Uso: <code class="log-info">deletar &lt;email_ou_nome&gt;</code>`, 'log-warning');
       } else {
         deleteUserAction(parts[1]);
+      }
+      break;
+
+    case 'role':
+    case 'cargo':
+      const admSessRole = getAuthSession();
+      if (!admSessRole || !isSuperUser(admSessRole.user)) {
+        appendLog(`⚠️ Apenas <strong>Administradores</strong> podem alterar funções.`, 'log-error');
+      } else if (!parts[1]) {
+        appendLog(`ℹ️ Uso: <code class="log-info">role &lt;email&gt; &lt;admin|farmaceutico&gt;</code>`, 'log-warning');
+      } else if (parts[2]) {
+        const newRole = parts[2].toLowerCase() === 'admin' ? 'admin' : 'farmaceutico';
+        const users = getRegisteredUsers();
+        const target = users.find(u => u.email?.toLowerCase() === parts[1].toLowerCase() || u.name?.toLowerCase() === parts[1].toLowerCase());
+        if (target) {
+          target.role = newRole;
+          saveRegisteredUsers(getRegisteredUsers());
+          if (typeof firestoreChangeUserRole === 'function') {
+            firestoreChangeUserRole(target.uid || target.email, newRole);
+          }
+          renderAdminUsersTable();
+          appendLog(`⭐ Função alterada para ${newRole.toUpperCase()} com sucesso.`, 'log-success');
+        } else {
+          appendLog(`⚠️ Usuário não encontrado.`, 'log-warning');
+        }
+      } else {
+        toggleRoleUserAction(parts[1]);
       }
       break;
 
@@ -3979,8 +4381,19 @@ async function executeCommand(inputCmd) {
   }
 }
 
-function parseCommandArgs(cmdStr) {
-  const tokens = [];
+function copyBatchItemText(batchId, itemIdx) {
+  const batchList = window.batchMessagesStore[batchId] || window[`batch_data_${batchId}`];
+  if (!batchList || !batchList[itemIdx]) return;
+  const item = batchList[itemIdx];
+  const cleanMsg = (item.messageText || '').replace(/\*\*/g, '').replace(/\*/g, '');
+  copyTextToClipboard(cleanMsg, `✅ Mensagem de ${escapeHTML(item.clientData?.nome || 'cliente')} copiada!`);
+}
+
+function openBatchItemWhatsApp(batchId, itemIdx) {
+  sendSingleBatchItemWhatsApp(batchId, itemIdx);
+}
+
+
 function runExamples() {
   appendLog(`🧪 Gerando exemplo 1 [💊 Medicamento]: Maria Oliveira - Amoxicilina 500mg...`, 'log-info');
   const ex1 = generateMessages({
@@ -4055,6 +4468,34 @@ function reRenderHistoryItem(id) {
   }
 }
 
+function showAbout() {
+  const aboutHTML = `
+    <div class="wizard-box">
+      <div class="wizard-title" style="color: var(--prompt-color);">
+        <span>ℹ️ Sobre o Terminal de Apoio ao Tratamento</span>
+      </div>
+      <p style="margin-bottom: 12px; line-height: 1.6;">
+        O <strong>Terminal de Apoio ao Tratamento & Serviços Farmacêuticos</strong> é uma plataforma web para geração humanizada e personalizada de mensagens de acompanhamento clínico, pós-atendimento e adesão terapêutica.
+      </p>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 14px; border-radius: 6px; margin-bottom: 12px; line-height: 1.7;">
+        <div>👨‍⚕️ <strong>Idealizador & Desenvolvedor:</strong> <span style="color: var(--text-bright);">Maxwell Rodrigues Ferreira</span></div>
+        <div>📋 <strong>Registro Profissional:</strong> Farmacêutico inscrito no <strong>CRF-SP sob o nº 86426</strong></div>
+        <div>💻 <strong>Especialidade:</strong> Desenvolvimento Web & Atenção Farmacêutica / Farmácia Clínica</div>
+        <div>🛡️ <strong>Segurança & Moderação:</strong> Controle RBAC, Proteção Anti-Spam e Google Gemini 3.6 Flash</div>
+      </div>
+
+      <div class="welcome-creator" style="margin-top: 10px; font-size: 0.8rem;">
+        <span>💊 Aplicação web independente focada no cuidado farmacêutico, farmacovigilância e promoção da saúde do paciente.</span>
+      </div>
+    </div>
+  `;
+  const container = document.createElement('div');
+  container.innerHTML = aboutHTML;
+  terminalOutput.appendChild(container);
+  scrollToBottom();
+}
+
 function showHelp() {
   const drogaria = escapeHTML(DEFAULT_CONFIG.drogaria || 'Drogaria');
   const farmaceutico = escapeHTML(DEFAULT_CONFIG.farmaceutico || 'Farmacêutico');
@@ -4064,13 +4505,14 @@ function showHelp() {
         <span>❓ Menu de Ajuda & Guia de Comandos — ${drogaria}</span>
       </div>
       <p class="log-dim" style="margin-bottom: 12px;">
-        👨⚕️ Bem-vindo ao sistema de acompanhamento do farmacêutico <strong>${farmaceutico}</strong> (${drogaria}). Utilize os botões interativos abaixo ou digite os comandos diretamente no terminal.
+        👨‍⚕️ Bem-vindo ao sistema de acompanhamento do farmacêutico <strong>${farmaceutico}</strong> (${drogaria}). Utilize os botões interativos abaixo ou digite os comandos diretamente no terminal.
       </p>
 
       <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
         <button class="tool-btn primary" onclick="startWizard()">✨ Nova Mensagem (Individual)</button>
         <button class="tool-btn primary" style="background: var(--warning-color); color: #000;" onclick="startBatchWizard()">📦 Lote Anti-Spam (Múltiplos)</button>
         <button class="tool-btn" onclick="showServicesHelp()">🩺 Serviços Farmacêuticos Suportados</button>
+        <button class="tool-btn" onclick="showAbout()">ℹ️ Sobre o Sistema</button>
         <button class="tool-btn" onclick="showHistory()">📜 Ver Histórico</button>
         <button class="tool-btn" onclick="toggleTheme()">🎨 Trocar Tema Visual</button>
       </div>
@@ -4092,7 +4534,7 @@ function showHelp() {
           </tr>
           <tr>
             <td><code>lote</code> / <code>massa</code> / <code>batch</code></td>
-            <td>Gera mensagens em massa 100% únicas (Anti-Spam).</td>
+            <td>Gera e dispara mensagens em lote no WhatsApp com Gemini IA.</td>
             <td><code>lote</code></td>
           </tr>
           <tr>
@@ -4104,6 +4546,11 @@ function showHelp() {
             <td><code>gerar [nome] [item]</code></td>
             <td>Gera mensagem instantânea diretamente pelo CLI.</td>
             <td><code>gerar "Maria" "Dipirona 1g"</code></td>
+          </tr>
+          <tr>
+            <td><code>sobre</code> / <code>info</code> / <code>autor</code></td>
+            <td>Exibe informações do sistema, desenvolvedor e farmacêutico responsável.</td>
+            <td><code>sobre</code></td>
           </tr>
           <tr>
             <td><code>historico</code></td>
@@ -4119,11 +4566,6 @@ function showHelp() {
             <td><code>aprovar [email]</code></td>
             <td>Aprova diretamente o cadastro de um farmacêutico pelo CLI.</td>
             <td><code>aprovar ana@drogasil.com</code></td>
-          </tr>
-          <tr>
-            <td><code>deletar [email]</code></td>
-            <td>Super Usuário deleta permanentemente o cadastro de um usuário comum.</td>
-            <td><code>deletar ana@drogasil.com</code></td>
           </tr>
           <tr>
             <td><code>apikey [chave]</code></td>
@@ -4162,6 +4604,10 @@ function showHelp() {
           </tr>
         </tbody>
       </table>
+
+      <div class="welcome-creator" style="margin-top: 14px;">
+        <span>👨‍⚕️💻 Criado pelo desenvolvedor e farmacêutico <strong>Maxwell Rodrigues Ferreira</strong> · Inscrito no <strong>CRF-SP nº 86426</strong></span>
+      </div>
     </div>
   `;
   const container = document.createElement('div');
@@ -4218,40 +4664,6 @@ function showServicesHelp() {
   scrollToBottom();
 }
 
-  const flags = {};
-  let currentToken = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < cmdStr.length; i++) {
-    const char = cmdStr[i];
-    if (char === '"' || char === "'") {
-      inQuotes = !inQuotes;
-    } else if (char === ' ' && !inQuotes) {
-      if (currentToken) {
-        tokens.push(currentToken);
-        currentToken = '';
-      }
-    } else {
-      currentToken += char;
-    }
-  }
-  if (currentToken) tokens.push(currentToken);
-
-  const cleanTokens = [];
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i].startsWith('--')) {
-      const flagName = tokens[i].substring(2).toLowerCase();
-      const flagVal = (tokens[i + 1] && !tokens[i + 1].startsWith('--')) ? tokens[i + 1] : true;
-      flags[flagName] = flagVal;
-      if (flagVal !== true) i++;
-    } else {
-      cleanTokens.push(tokens[i]);
-    }
-  }
-  cleanTokens.flags = flags;
-  return cleanTokens;
-}
-
 function openWhatsApp(phone, id) {
   const cardElem = document.getElementById(`card-${id}`);
   if (!cardElem) return;
@@ -4260,7 +4672,7 @@ function openWhatsApp(phone, id) {
   const rawVal = versions[activeTone];
   const text = (typeof rawVal === 'object' ? rawVal.text : rawVal).replace(/\*\*/g, '*');
   const encodedText = encodeURIComponent(text);
-  const sanitizedPhone = String(phone || '').replace(/[^\d]/g, '');
+  const sanitizedPhone = formatWhatsAppPhone(phone);
 
   let url = '';
   if (sanitizedPhone) {
